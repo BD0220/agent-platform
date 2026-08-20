@@ -8,7 +8,13 @@
 [![License](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![CI](https://github.com/BD0220/agent-platform/actions/workflows/ci.yml/badge.svg)](https://github.com/BD0220/agent-platform/actions)
 
-## 核心特性
+## 🎮 在线体验
+
+👉 **[点击打开在线 Demo](https://bd0220.github.io/agent-platform/)**（无需安装，浏览器或手机直接体验）
+
+> Demo 为纯前端交互演示版本，完整还原了深色主题 UI、Agent 协作流程与任务交付动效。完整版需配置 DeepSeek API Key 后本地运行，可真实驱动 LLM 完成代码开发任务。
+
+## ✨ 核心特性
 
 - **🧠 ReAct 主 Agent 调度**：基于 LangGraph 构建 `init → retrieve → agent ↔ tools → conclusion` 状态机，主 Agent 通过 Function Calling 自主决策调度子 Agent、审查产出、退回重做
 - **👥 三角色协作**：产品经理（需求分析）、程序员（代码生成）、测试员（自动测试），主 Agent 动态编排而非固定流水线

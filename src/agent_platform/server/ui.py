@@ -71,7 +71,7 @@ CSS = """
   --cyan-glow: rgba(34,211,238,0.25);
   --purple: #a78bfa;
   --purple-bg: rgba(167,139,250,0.12);
-  /* Demo agent aliases */
+  /* Agent aliases */
   --pm: #f59e0b;
   --pm-bg: rgba(245,158,11,0.12);
   --pm-glow: rgba(245,158,11,0.25);
@@ -277,7 +277,7 @@ button.stop:hover, button[variant="stop"]:hover {
   padding: 2px 8px; border-radius: 4px;
 }
 
-/* ── Layout: Sidebar Column (matches demo desktop-sidebar) ── */
+/* ── Layout: Sidebar Column ── */
 .sidebar {
   width: var(--sidebar-w) !important;
   min-width: var(--sidebar-w) !important;
@@ -292,7 +292,7 @@ button.stop:hover, button[variant="stop"]:hover {
   display: flex !important;
   flex-direction: column !important;
 }
-/* Brand / Logo at top — like demo .sidebar-logo */
+/* Brand / Logo at top */
 .sidebar-brand {
   display: flex; align-items: center; gap: 12px;
   padding: 8px 12px 24px;
@@ -331,7 +331,7 @@ button.stop:hover, button[variant="stop"]:hover {
   letter-spacing: 0.06em;
   padding: 0 6px 8px;
 }
-/* Sidebar footer — user info at bottom like demo */
+/* Sidebar footer — user info at bottom */
 .sidebar-foot {
   padding: 16px 12px 8px;
   border-top: 1px solid var(--border);
@@ -449,14 +449,14 @@ button.stop:hover, button[variant="stop"]:hover {
   font-weight: 700; font-size: 16px; color: #fff;
   flex-shrink: 0;
 }
-/* Section title (matches demo) */
+/* Section title */
 .section-title {
   font-size: 13px; font-weight: 700; color: var(--txt-2);
   text-transform: uppercase; letter-spacing: 0.04em;
   padding: 8px 0 10px;
 }
 
-/* ── Task Input Card (matches demo) ── */
+/* ── Task Input Card ── */
 .task-input-card {
   background: linear-gradient(135deg, rgba(99,102,241,0.12), rgba(139,92,246,0.08)) !important;
   border: 1px solid rgba(99,102,241,0.2) !important;
@@ -578,7 +578,7 @@ button.stop:hover, button[variant="stop"]:hover {
 .step-line.done { background: var(--green); }
 .step-line.active { background: linear-gradient(90deg, var(--green), var(--blue)); }
 
-/* ── Agent Status (matches mobile-demo.html) ── */
+/* ── Agent Status ── */
 .agents-row {
   display: flex; gap: 10px; flex-wrap: wrap;
   margin-bottom: 16px;
@@ -754,7 +754,7 @@ button.stop:hover, button[variant="stop"]:hover {
   color: var(--text-muted); font-size: 13px;
 }
 
-/* ── Auth Screen (matches mobile-demo.html exactly) ── */
+/* ── Auth Screen ── */
 .auth-screen {
   position: fixed !important;
   inset: 0 !important;
@@ -768,6 +768,17 @@ button.stop:hover, button[variant="stop"]:hover {
   z-index: 999;
   overflow-y: auto;
   display: block !important;
+}
+/* Ensure the auth screen can actually be hidden by Gradio (visible=False):
+   Gradio 4.44's Group toggles a `hide` class on the wrapper element
+   (see Group.svelte: c(e, "hide", !visible)). Without this rule the
+   `display: block !important` above would always keep the login overlay
+   visible on top of the workspace. */
+.auth-screen.hide,
+.auth-screen.hidden,
+.auth-screen[style*="display: none"],
+.auth-screen[style*="display:none"] {
+  display: none !important;
 }
 .auth-screen > .form {
   background: transparent !important;
@@ -796,7 +807,7 @@ button.stop:hover, button[variant="stop"]:hover {
   backdrop-filter: none !important;
   -webkit-backdrop-filter: none !important;
 }
-/* Decorative glow background — two radial circles like demo */
+/* Decorative glow background — two radial circles */
 .auth-card::before {
   content: "";
   position: fixed;
@@ -1504,7 +1515,7 @@ with gr.Blocks(
     user_state = gr.State("")
     nav_page = gr.State("workbench")
 
-    # ── Login Screen (matches mobile-demo.html) ──
+    # ── Login Screen ──
     with gr.Group(visible=True, elem_classes=["auth-screen"]) as login_group:
         with gr.Column(elem_classes=["auth-card"], scale=1, min_width=0):
             gr.HTML(
@@ -1568,9 +1579,9 @@ with gr.Blocks(
                     '<span class="wh-title">BD</span></div>'
                     '<div class="wh-avatar">B</div></div>'
                 )
-                # Workbench Panel (matches mobile-demo.html layout)
+                # Workbench Panel
                 with gr.Group(visible=True) as workbench_panel:
-                    # Task input card — gradient border like demo
+                    # Task input card — gradient border
                     with gr.Group(elem_classes=["task-input-card"]):
                         gr.HTML('<div class="tic-label">⚡ 新任务</div>')
                         with gr.Row():

@@ -151,7 +151,7 @@ async def api_run_task_stream(
     def run_in_background():
         set_current_task(task_id)
         try:
-            result = run_task(task.strip(), task_id=task_id)
+            result = run_task(task.strip())
             with open(LAST_RESULT_FILE, "w", encoding="utf-8") as f:
                 json.dump(result, f, ensure_ascii=False, indent=2)
             result_holder["data"] = result
@@ -265,10 +265,8 @@ def api_submit_task(req: TaskRequest, authorization: str = Header(default=None))
 
 
 def _run_task_with_id(user_request: str) -> dict:
-    """包装 run_task，让队列线程能传入 task_id（从 ContextVar 获取）。"""
-    from ..storage.state import get_current_task_id
-    tid = get_current_task_id() or ""
-    return run_task(user_request, task_id=tid)
+    """包装 run_task，保留队列兼容签名。"""
+    return run_task(user_request)
 
 
 @app.get("/task/{task_id}/status", tags=["queue"])

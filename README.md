@@ -8,17 +8,6 @@
 [![License](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![CI](https://github.com/BD0220/agent-platform/actions/workflows/ci.yml/badge.svg)](https://github.com/BD0220/agent-platform/actions)
 
-## 📸 界面预览
-
-![登录页](docs/screenshot-login.png)
-*登录页：深色主题，品牌渐变设计*
-
-![工作台](docs/screenshot-workspace.png)
-*工作台：任务输入、Agent 协作面板、实时执行日志*
-
-
-
-
 ## ✨ 核心特性
 
 - **🧠 ReAct 主 Agent 调度**：基于 LangGraph 构建 `init → retrieve → agent ↔ tools → conclusion` 状态机，主 Agent 通过 Function Calling 自主决策调度子 Agent、审查产出、退回重做

@@ -1,0 +1,67 @@
+# Byte-compiled
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+*.egg
+
+# Virtual environments
+venv/
+.venv/
+env/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Environment secrets (NEVER commit)
+.env
+.env.local
+.env.production
+
+# Runtime data
+data/platform.db
+data/platform.db-shm
+data/platform.db-wal
+data/memory.json
+data/tokens.json
+data/last_result.json
+data/project_state.json
+data/state_*.json
+data/.session_*.json
+data/logs/
+data/chroma_db/
+data/.gitkeep
+!data/.gitkeep
+
+# Deliveries (generated per task)
+deliveries/
+
+# Keep data directory structure
+!data/.gitkeep
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Claude / AI tools
+.claude/
+CLAUDE.md
+memory.json
+
+# E2E test (contains local API key references)
+e2e_test.py
+
+# Build artifacts
+*.egg-info/
+
+# SQLite journal
+*.db-journal
+*.db-wal
+*.db-shm

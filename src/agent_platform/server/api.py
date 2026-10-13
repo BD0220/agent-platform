@@ -81,7 +81,8 @@ app.include_router(_file_router)
 
 
 # ---------------------------------------------------------------------------
-# 静态前端（web/ 目录，存在才挂载）
+# 静态前端（web/ 目录，存在才挂载）—— 注意：调用在文件末尾，
+# 必须等所有 API 路由都注册完再 mount("/")，否则路由会被静态目录遮住。
 # ---------------------------------------------------------------------------
 def _mount_web():
     web_dir = PROJECT_ROOT / "web"
@@ -90,13 +91,8 @@ def _mount_web():
         return
     from fastapi.staticfiles import StaticFiles
 
-    # 必须在所有 API 路由注册之后 mount("/")：路由匹配优先于挂载，
-    # 所以 /sessions /models 这些接口不会被静态文件挡住。
     app.mount("/", StaticFiles(directory=str(web_dir), html=True), name="web")
     safe_print(f"[API] 静态前端已挂载: {web_dir}")
-
-
-_mount_web()
 
 
 # ---------------------------------------------------------------------------
@@ -486,3 +482,7 @@ def api_kb_delete(name: str):
     from ..rag.import_docs import delete_kb_collection
     ok = delete_kb_collection(name)
     return {"status": "success" if ok else "error", "deleted": ok}
+
+
+# 所有 API 路由注册完毕，最后挂静态前端
+_mount_web()

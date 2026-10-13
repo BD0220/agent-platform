@@ -8,6 +8,7 @@
     es: null,           // EventSource
     terminal: false,    // 本轮执行已收尾
     pendingApprovalId: "",
+    resolving: false,   // 审批请求在途，防重复点击
     workspaces: [],
   };
 
@@ -178,15 +179,16 @@
 
   // ── 交接审批 ──
   function updateHandoffVisibility() {
-    // 从时间线里找最近的、未处置的 handoff 事件
+    // 从时间线里找最近一条"还没被处置"的 handoff 事件
+    const bar = $("handoff");
+    if (state.terminal) { bar.classList.add("hidden"); return; }
     let pending = null;
     document.querySelectorAll(".handoff-msg").forEach((n) => {
       if (n.dataset.approvalId && !n.dataset.resolved) pending = n;
     });
-    const bar = $("handoff");
-    if (pending && !state.terminal) {
+    if (pending) {
+      state.pendingApprovalId = pending.dataset.approvalId;
       bar.classList.remove("hidden");
-      const title = pending.querySelector(".ho-inline b");
       const agents = pending.querySelectorAll(".ho-inline b");
       $("ho-flow").textContent = agents.length >= 2
         ? `${agents[0].textContent} → ${agents[1].textContent}` : "";
@@ -195,18 +197,28 @@
       $("ho-summary").style.display = $("ho-summary").textContent ? "block" : "none";
       $("ho-task").value = "";
     } else {
+      state.pendingApprovalId = "";
       bar.classList.add("hidden");
     }
   }
 
   async function resolve(decision) {
     if (!state.sessionId) return;
+    if (state.resolving) return;          // 防重复点击：点了就立刻锁住
+    state.resolving = true;
     const taskText = decision === "reject" ? ($("ho-task").value.trim() || "") : $("ho-task").value.trim();
     try {
       await AB.api.approval(state.sessionId, decision, taskText, state.pendingApprovalId);
       $("handoff").classList.add("hidden");
       if (decision !== "stop") setStatus("进行中", "run");
-    } catch (e) { alert(e.message); }
+    } catch (e) {
+      // 404 = 这项其实已经处理完（多标签页/重复点击），把陈旧确认条清掉即可
+      $("handoff").classList.add("hidden");
+      state.pendingApprovalId = "";
+      if (e.status !== 404) alert(e.message);
+    } finally {
+      state.resolving = false;
+    }
   }
 
   function updateStopVisibility() {

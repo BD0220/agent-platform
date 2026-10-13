@@ -168,7 +168,13 @@ AB.chat = (() => {
     }
     if (kind === "handoff") return renderHandoff(ev);
     if (kind === "handoff_done") {
-      if (ev.approval_id) state.resolved.set(ev.approval_id, ev.decision || "");
+      if (ev.approval_id) {
+        state.resolved.set(ev.approval_id, ev.decision || "");
+        // 把时间线上对应的确认卡片标记为已处置，前端不再把它当"待确认"
+        const card = scrollInner().querySelector(
+          `.handoff-msg[data-approval-id="${ev.approval_id}"]`);
+        if (card) card.dataset.resolved = ev.decision || "1";
+      }
       if (ev.note) return el("div", "sys", `<span class="chip">${esc(ev.note)}</span>`);
       return null;
     }

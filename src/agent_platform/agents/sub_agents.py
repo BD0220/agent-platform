@@ -141,56 +141,59 @@ def programmer_fix_work(master_task: str = None):
 def _judge_test_result(result: str) -> bool:
     """从测试员输出中判断测试是否通过。
 
-    **优先读测试员显式声明的结论行**（``测试结论：通过`` / ``测试结论：未通过``），
-    只有找不到结论行时才退回关键词启发式。
+    证据优先级（2026-10-13 修订，实测踩过坑）：
+      1. 显式结论行 ``测试结论：通过/未通过`` —— 提示词规定的格式，最可信；
+      2. **实际运行证据** —— 测试员把 run_python_file 的原始输出贴进报告的代码块，
+         里面 ``[通过]``/``[失败]`` 标记是程序真实跑出来的结果；
+      3. 正文关键词扫描（已剥离代码块）—— 兜底。
 
-    为什么不能再只靠关键词扫全文：测试员被要求把 ``run_python_file`` 的原始
-    输出和堆栈一起贴进报告，于是正文里出现 ``Error``、``Traceback``、
-    用例函数名都很正常 —— 拿 ``FAIL`` / ``ERROR`` 去扫整篇，会把
-    "其实跑通了、只是老实贴了原始输出"误判成"测试失败"。
-    实测就踩到过：主 Agent 复核的结论是"退出码 0、14 条用例全部通过"，
-    而这里判成了未通过，界面最终显示"测试状态：未通过"，与事实相反。
-
-    关键词判定保留为兜底（老提示词、外部直接调用等场景），
-    但把"显式结论"的优先级放到最高。
+    为什么不能只信关键词扫全文（旧版的坑）：测试员偶尔不写结论行，
+    甚至在报告开头写一句自相矛盾的 ``[测试未通过]``，而贴出的原始输出里
+    明明是「汇总：全部通过（16/16）」。文字和运行证据打架时，旧版判了未通过，
+    与事实相反 —— 现在运行证据优先。
     """
     import re
     text = result or ""
     upper = text.upper()
 
-    # 1) 显式结论行 —— 只看这一行，完全不受正文原始输出干扰
+    # 1) 显式结论行 —— 只看这一行
     explicit = re.findall(
         r"测试结论\s*[:：]\s*\**\s*(通过|未通过|不通过|失败)", text)
     if explicit:
         return explicit[-1] == "通过"
 
-    # 2) 明确失败信号（优先级最高）
+    # 2) 运行证据：代码块里的 [通过]/[失败] 标记
+    blocks_text = "\n".join(re.findall(r"```(.*?)```", text, flags=re.DOTALL))
+    if blocks_text.strip():
+        blocks_upper = blocks_text.upper()
+        # 先剔除否定形式（0 FAIL / NO FAIL），再数失败标记
+        cleaned = re.sub(r"(0|NO|ZERO)\s+FAIL", "", blocks_upper)
+        fail_marks = len(re.findall(r"\[失败\]|\bFAIL\b", cleaned))
+        pass_marks = len(re.findall(r"\[通过\]", blocks_text))
+        if fail_marks > 0:
+            return False
+        if pass_marks > 0:
+            return True
+
+    # 3) 正文关键词（剥离代码块后的叙述部分）
+    body = re.sub(r"```.*?```", "", text, flags=re.DOTALL).upper()
     fail_signals = ["FAIL", "FAILED", "ERROR", "TRACEBACK", "ASSERTIONERROR",
                     "测试失败", "存在失败", "未通过"]
-    # 但要排除"0 failed"这种否定形式
     for sig in fail_signals:
-        if sig in upper:
-            # 检查是否被否定（如 "0 failed"、"没有失败"）
-            idx = upper.find(sig)
-            before = upper[max(0, idx - 12):idx]
+        idx = body.find(sig)
+        if idx != -1:
+            before = body[max(0, idx - 12):idx]
             if re.search(r"(0\s*|NO\s*|无\s*|没有\s*|ZERO\s*)", before):
                 continue
             return False
 
-    # 3) 明确通过信号
     pass_signals = ["ALL PASSED", "ALL TESTS PASSED", "所有测试用例通过",
                     "全部通过", "测试通过", "无问题", "0 FAIL"]
     for sig in pass_signals:
-        if sig in upper:
+        if sig in body:
             return True
 
-    # 4) 检查 PASS / FAIL 计数：有 PASS 行且无 FAIL 行
-    pass_count = len(re.findall(r"\bPASS\b", upper))
-    fail_count = len(re.findall(r"\bFAIL\b", upper))
-    if pass_count > 0 and fail_count == 0:
-        return True
-
-    # 5) 兜底：判为未通过（宁可漏报通过，也不要把失败的代码说成通过）
+    # 4) 兜底：宁可漏报通过，也不把失败的代码说成通过
     return False
 
 

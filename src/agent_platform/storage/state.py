@@ -164,10 +164,28 @@ def extract_task_name(user_request: str) -> str:
     return name.strip() or f"任务_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
 
 
+def short_suffix(task_id: str) -> str:
+    """取 task_id 里**真正有区分度**的一小段，用作交付目录名后缀。
+
+    这里踩过一个很隐蔽的坑：原标题写法是 ``task_id[:8]``，而会话 id 长这样
+    —— ``s_20260919_184751_f9fb3e``。前 8 位是 ``s_202609``，也就是"年月"，
+    **同一天创建的所有会话这段一模一样**。于是"为了避免重名而加的后缀"
+    等于没加：同一天两次跑同名任务，两次都算到同一个目录名上，
+    后一次静默覆盖前一次的交付物（``代码.py`` 直接没了）。
+
+    会话 id 里随机的是**末段**，所以取尾部；对 uuid 形态的 task_id 同样成立。
+    """
+    alnum = re.sub(r"[^A-Za-z0-9]", "", task_id or "")
+    return alnum[-6:] or "0"
+
+
 def get_current_task_dir() -> str:
     """获取当前任务的交付目录路径，确保目录存在后返回。
 
-    目录名包含 task_id 短哈希后缀，确保并发任务不会写入同一目录。
+    目录名包含 task_id 短后缀，确保并发任务不会写入同一目录。
+    若状态里带了 ``workspace_path``（用户在界面上选了工作空间），
+    交付物就落到该目录下 —— 但仍然多包一层任务子目录，
+    否则连续两个任务都会产出名为 ``代码.py`` 的文件，后者直接把前者覆盖掉。
     """
     state = load_state()
     task_name = state.get("task_name", "")
@@ -175,13 +193,28 @@ def get_current_task_dir() -> str:
         user_request = state.get("user_request", "")
         task_name = extract_task_name(user_request) if user_request else f"任务_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
 
-    # 追加 task_id 短后缀避免并发同名任务目录冲突
+    # 追加 task_id 短后缀，避免同一天的同名任务写进同一个目录互相覆盖
     tid = _current_task_id.get()
     if tid:
-        dir_name = f"{task_name}_{tid[:8]}"
+        dir_name = f"{task_name}_{short_suffix(tid)}"
     else:
         dir_name = task_name
 
-    task_dir = os.path.join(DELIVERIES_DIR, dir_name)
+    root = ""
+    tid = _current_task_id.get()
+    if tid:
+        try:
+            from ..runtime.session_store import get_workspace_path
+            root = get_workspace_path(tid)
+        except Exception as e:
+            safe_print(f"[状态管理器] 读取会话工作空间失败: {e}")
+    if not root:
+        root = str(state.get("workspace_path") or "").strip()
+    root = root or str(DELIVERIES_DIR)
+    if not os.path.isdir(root):
+        safe_print(f"[状态管理器] 工作空间 {root} 不可用，退回默认交付目录")
+        root = str(DELIVERIES_DIR)
+
+    task_dir = os.path.join(root, dir_name)
     os.makedirs(task_dir, exist_ok=True)
     return task_dir

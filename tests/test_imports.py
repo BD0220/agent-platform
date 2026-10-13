@@ -12,7 +12,7 @@ def test_utils_import():
 
 def test_storage_import():
     from agent_platform.storage import get_chroma_collection, get_or_create_kb_collection
-    from agent_platform.storage.database import init_db, db_get_all_users, db_count_memories
+    from agent_platform.storage.database import init_db, db_count_memories
     from agent_platform.storage.state import save_state, load_state, extract_task_name
     assert callable(init_db)
     assert callable(save_state)
@@ -112,16 +112,9 @@ def test_conversation_import():
     assert callable(chat_with_agent)
 
 
-def test_auth_import():
-    from agent_platform.auth import register, login, verify_token
-    assert callable(register)
-    assert callable(login)
-    assert callable(verify_token)
-
-
 def test_server_import():
     from agent_platform.server.api import app
-    assert app.title == "多智能体协作平台 API"
+    assert app.title == "abundance API"
 
 
 def test_main_import():

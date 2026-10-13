@@ -1,147 +1,147 @@
-"""SQLite 数据库层 — 管理 tasks, users, memories 三张核心表。
+"""数据库层 —— MySQL（SQLAlchemy + PyMySQL），tasks / memories 两张表。
 
-- 使用线程局部连接（``threading.local``），每个工作线程持有独立连接。
-- 数据库路径从 ``utils.paths.DB_FILE`` 获取，支持环境变量 ``AGENT_DATA_DIR`` 覆盖。
-- ``init_db()`` 幂等，可安全重复调用；不再在模块 import 时自动执行。
+2026-10-13 从 SQLite 迁移到 MySQL：
+- 连接参数从环境变量 ``MYSQL_*`` 读取（run.py 启动时会把项目根目录的 ``.env``
+  装进环境变量）；没配 ``MYSQL_*`` 时兜底回 SQLite（``data/platform.db``），
+  本地零配置也能跑，但主路径是 MySQL。
+- 旧版的 users 表随登录体系一起删除 —— 单机自用没有"多用户"这个概念。
+- ``init_db()`` 幂等；所有写操作走短事务（``engine.begin()``），天然并发安全，
+  不再需要旧版那种手写的 30 秒 timeout / WAL 折腾。
 """
 import json
-import sqlite3
-import threading
+import os
 from datetime import datetime
+from urllib.parse import quote_plus
 
-from ..utils.paths import DB_FILE, ensure_dirs
+from sqlalchemy import (
+    String, Text, create_engine, insert, select, update, func,
+)
+from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
+
+from ..utils.paths import DATA_DIR, ensure_dirs
 from ..utils.safe_print import safe_print
 
-_local = threading.local()
-_init_lock = threading.Lock()
-_initialized = False
+_now = lambda: datetime.now().strftime("%Y-%m-%d %H:%M:%S")  # noqa: E731
 
 
-def _get_conn() -> sqlite3.Connection:
-    if not hasattr(_local, "conn") or _local.conn is None:
+class Base(DeclarativeBase):
+    pass
+
+
+class Task(Base):
+    """一次任务/会话的登记与结果。id 直接复用 session_id。"""
+
+    __tablename__ = "tasks"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    username: Mapped[str] = mapped_column(String(64), default="")
+    user_request: Mapped[str] = mapped_column(Text)
+    task_name: Mapped[str] = mapped_column(String(128), default="")
+    status: Mapped[str] = mapped_column(String(16), default="running", index=True)
+    progress: Mapped[str | None] = mapped_column(Text, nullable=True)
+    result_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[str] = mapped_column(String(19), default=_now, index=True)
+    updated_at: Mapped[str] = mapped_column(String(19), default=_now, onupdate=_now)
+
+
+class Memory(Base):
+    """任务完成后沉淀的经验（RAG 长期记忆的结构化部分）。"""
+
+    __tablename__ = "memories"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    task_type: Mapped[str] = mapped_column(String(64), default="", index=True)
+    tags: Mapped[str] = mapped_column(Text, default="")
+    task_description: Mapped[str] = mapped_column(Text, default="")
+    one_line_summary: Mapped[str] = mapped_column(Text, default="")
+    successes: Mapped[str] = mapped_column(Text, default="")
+    lessons: Mapped[str] = mapped_column(Text, default="")
+    improvements: Mapped[str] = mapped_column(Text, default="")
+    quality_score: Mapped[int] = mapped_column(default=5)
+    created_at: Mapped[str] = mapped_column(String(19), default=_now, index=True)
+
+
+def _build_url() -> str:
+    user = os.getenv("MYSQL_USER", "")
+    if not user:
+        # 未配置 MySQL：兜底 SQLite，保证本地零配置可用
         ensure_dirs()
-        _local.conn = sqlite3.connect(DB_FILE, check_same_thread=False)
-        _local.conn.row_factory = sqlite3.Row
-        _local.conn.execute("PRAGMA journal_mode=WAL")
-        _local.conn.execute("PRAGMA foreign_keys=ON")
-    return _local.conn
+        safe_print("[数据库] 未配置 MYSQL_*，使用 SQLite 兜底（data/platform.db）")
+        return "sqlite:///" + str(DATA_DIR / "platform.db")
+    host = os.getenv("MYSQL_HOST", "127.0.0.1")
+    port = os.getenv("MYSQL_PORT", "3306")
+    pw = quote_plus(os.getenv("MYSQL_PASSWORD", ""))
+    db = os.getenv("MYSQL_DATABASE", "abundance")
+    return f"mysql+pymysql://{quote_plus(user)}:{pw}@{host}:{port}/{db}?charset=utf8mb4"
+
+
+_engine = None
+
+
+def _get_engine():
+    global _engine
+    if _engine is None:
+        _engine = create_engine(
+            _build_url(),
+            pool_pre_ping=True,      # MySQL 8 小时不互动会断连，取连接前先 ping
+            pool_recycle=3600,
+            future=True,
+        )
+    return _engine
 
 
 def init_db():
-    """初始化数据库表。幂等，可安全重复调用。"""
-    global _initialized
-    if _initialized:
-        return
-    with _init_lock:
-        if _initialized:
-            return
-        conn = _get_conn()
-        conn.executescript("""
-            CREATE TABLE IF NOT EXISTS users (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                username TEXT UNIQUE NOT NULL,
-                password_hash TEXT NOT NULL,
-                created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))
-            );
-            CREATE TABLE IF NOT EXISTS tasks (
-                id TEXT PRIMARY KEY,
-                username TEXT,
-                user_request TEXT NOT NULL,
-                task_name TEXT,
-                status TEXT NOT NULL DEFAULT 'pending',
-                progress TEXT,
-                result_json TEXT,
-                error TEXT,
-                created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
-                updated_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))
-            );
-            CREATE TABLE IF NOT EXISTS memories (
-                id TEXT PRIMARY KEY,
-                task_type TEXT,
-                tags TEXT,
-                task_description TEXT,
-                one_line_summary TEXT,
-                successes TEXT,
-                lessons TEXT,
-                improvements TEXT,
-                quality_score INTEGER DEFAULT 5,
-                created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))
-            );
-            CREATE INDEX IF NOT EXISTS idx_tasks_username ON tasks(username);
-            CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks(status);
-            CREATE INDEX IF NOT EXISTS idx_memories_task_type ON memories(task_type);
-            CREATE INDEX IF NOT EXISTS idx_memories_created ON memories(created_at);
-        """)
-        conn.commit()
-        _initialized = True
-        safe_print("[数据库] 初始化完成")
+    """建表。幂等，可安全重复调用。"""
+    Base.metadata.create_all(_get_engine())
+    safe_print("[数据库] 初始化完成")
 
 
-def db_create_user(username: str, password_hash: str) -> tuple[bool, str]:
-    conn = _get_conn()
-    try:
-        conn.execute("INSERT INTO users (username, password_hash) VALUES (?, ?)", (username, password_hash))
-        conn.commit()
-        return True, f"用户 '{username}' 创建成功"
-    except sqlite3.IntegrityError:
-        return False, f"用户名 '{username}' 已存在"
-
-
-def db_get_user(username: str) -> dict | None:
-    conn = _get_conn()
-    row = conn.execute("SELECT * FROM users WHERE username = ?", (username,)).fetchone()
-    return dict(row) if row else None
-
-
-def db_get_all_users() -> list[str]:
-    conn = _get_conn()
-    return [r["username"] for r in conn.execute("SELECT username FROM users ORDER BY username").fetchall()]
-
-
+# ---------------------------------------------------------------------------
+# tasks
+# ---------------------------------------------------------------------------
 def db_create_task(task_id: str, user_request: str, task_name: str = "", username: str = ""):
-    conn = _get_conn()
-    conn.execute(
-        "INSERT INTO tasks (id, username, user_request, task_name, status) VALUES (?, ?, ?, ?, 'running')",
-        (task_id, username, user_request, task_name),
-    )
-    conn.commit()
+    with _get_engine().begin() as conn:
+        conn.execute(insert(Task).values(
+            id=task_id, username=username, user_request=user_request,
+            task_name=task_name, status="running",
+        ))
 
 
 def db_update_task_progress(task_id: str, progress: dict):
-    conn = _get_conn()
-    conn.execute(
-        "UPDATE tasks SET progress = ?, updated_at = datetime('now', 'localtime') WHERE id = ?",
-        (json.dumps(progress, ensure_ascii=False), task_id),
-    )
-    conn.commit()
+    with _get_engine().begin() as conn:
+        conn.execute(update(Task).where(Task.id == task_id).values(
+            progress=json.dumps(progress, ensure_ascii=False), updated_at=_now(),
+        ))
 
 
 def db_complete_task(task_id: str, result: dict):
-    conn = _get_conn()
-    conn.execute(
-        "UPDATE tasks SET status = 'completed', result_json = ?, "
-        "updated_at = datetime('now', 'localtime') WHERE id = ?",
-        (json.dumps(result, ensure_ascii=False), task_id),
-    )
-    conn.commit()
+    with _get_engine().begin() as conn:
+        conn.execute(update(Task).where(Task.id == task_id).values(
+            status="completed",
+            result_json=json.dumps(result, ensure_ascii=False),
+            updated_at=_now(),
+        ))
 
 
 def db_fail_task(task_id: str, error: str):
-    conn = _get_conn()
-    conn.execute(
-        "UPDATE tasks SET status = 'failed', error = ?, "
-        "updated_at = datetime('now', 'localtime') WHERE id = ?",
-        (error, task_id),
-    )
-    conn.commit()
+    with _get_engine().begin() as conn:
+        conn.execute(update(Task).where(Task.id == task_id).values(
+            status="failed", error=error, updated_at=_now(),
+        ))
 
 
 def db_get_task(task_id: str) -> dict | None:
-    conn = _get_conn()
-    row = conn.execute("SELECT * FROM tasks WHERE id = ?", (task_id,)).fetchone()
+    with _get_engine().connect() as conn:
+        row = conn.execute(select(Task).where(Task.id == task_id)).first()
     if not row:
         return None
-    task = dict(row)
+    task = {
+        "id": row.id, "username": row.username, "user_request": row.user_request,
+        "task_name": row.task_name, "status": row.status,
+        "progress": row.progress, "result_json": row.result_json,
+        "error": row.error, "created_at": row.created_at, "updated_at": row.updated_at,
+    }
     for field in ("progress", "result_json"):
         if task.get(field):
             try:
@@ -152,54 +152,75 @@ def db_get_task(task_id: str) -> dict | None:
 
 
 def db_list_tasks(username: str = "", status: str = "", limit: int = 20) -> list[dict]:
-    conn = _get_conn()
-    query = ("SELECT id, username, user_request, task_name, status, created_at, updated_at "
-             "FROM tasks WHERE 1=1")
-    params = []
+    stmt = select(Task.id, Task.username, Task.user_request, Task.task_name,
+                  Task.status, Task.created_at, Task.updated_at)
     if username:
-        query += " AND username = ?"
-        params.append(username)
+        stmt = stmt.where(Task.username == username)
     if status:
-        query += " AND status = ?"
-        params.append(status)
-    query += " ORDER BY created_at DESC LIMIT ?"
-    params.append(limit)
-    return [dict(r) for r in conn.execute(query, params).fetchall()]
+        stmt = stmt.where(Task.status == status)
+    stmt = stmt.order_by(Task.created_at.desc()).limit(limit)
+    with _get_engine().connect() as conn:
+        rows = conn.execute(stmt).all()
+    keys = ("id", "username", "user_request", "task_name",
+            "status", "created_at", "updated_at")
+    return [dict(zip(keys, r)) for r in rows]
+
+
+# ---------------------------------------------------------------------------
+# memories
+# ---------------------------------------------------------------------------
+def _upsert(engine, model, values: dict):
+    """跨方言 upsert：MySQL 用 ON DUPLICATE KEY，SQLite 用 ON CONFLICT。
+
+    迁移脚本和 db_save_memory 共用，保证"写 MySQL 主路径 + SQLite 兜底"
+    两条路行为一致。
+    """
+    update_fields = {k: v for k, v in values.items() if k != "id"}
+    if engine.dialect.name == "mysql":
+        from sqlalchemy.dialects.mysql import insert as dialect_insert
+
+        stmt = dialect_insert(model).values(**values)
+        stmt = stmt.on_duplicate_key_update(**update_fields)
+    else:
+        from sqlalchemy.dialects.sqlite import insert as dialect_insert
+
+        stmt = dialect_insert(model).values(**values)
+        stmt = stmt.on_conflict_do_update(
+            index_elements=[model.__table__.primary_key.columns[0]], set_=update_fields
+        )
+    with engine.begin() as conn:
+        conn.execute(stmt)
 
 
 def db_save_memory(experience: dict):
-    conn = _get_conn()
-    conn.execute(
-        """INSERT OR REPLACE INTO memories (id, task_type, tags, task_description, one_line_summary,
-           successes, lessons, improvements, quality_score, created_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-        (experience["id"], experience.get("task_type", ""),
-         json.dumps(experience.get("tags", []), ensure_ascii=False),
-         experience.get("task_description", ""), experience.get("one_line_summary", ""),
-         json.dumps(experience.get("successes", []), ensure_ascii=False),
-         json.dumps(experience.get("lessons", []), ensure_ascii=False),
-         json.dumps(experience.get("improvements", []), ensure_ascii=False),
-         experience.get("quality_score", 5),
-         experience.get("created_at", datetime.now().strftime("%Y-%m-%d %H:%M:%S"))),
+    values = dict(
+        id=experience["id"],
+        task_type=experience.get("task_type", ""),
+        tags=json.dumps(experience.get("tags", []), ensure_ascii=False),
+        task_description=experience.get("task_description", ""),
+        one_line_summary=experience.get("one_line_summary", ""),
+        successes=json.dumps(experience.get("successes", []), ensure_ascii=False),
+        lessons=json.dumps(experience.get("lessons", []), ensure_ascii=False),
+        improvements=json.dumps(experience.get("improvements", []), ensure_ascii=False),
+        quality_score=experience.get("quality_score", 5),
+        created_at=experience.get("created_at", _now()),
     )
-    conn.commit()
+    _upsert(_get_engine(), Memory, values)
 
 
 def db_search_memories(keyword: str = "", task_type: str = "", limit: int = 20) -> list[dict]:
-    conn = _get_conn()
-    query = "SELECT * FROM memories WHERE 1=1"
-    params = []
+    stmt = select(Memory)
     if keyword:
-        query += " AND (task_description LIKE ? OR one_line_summary LIKE ?)"
-        params.extend([f"%{keyword}%", f"%{keyword}%"])
+        like = f"%{keyword}%"
+        stmt = stmt.where(Memory.task_description.like(like) | Memory.one_line_summary.like(like))
     if task_type:
-        query += " AND task_type = ?"
-        params.append(task_type)
-    query += " ORDER BY quality_score DESC, created_at DESC LIMIT ?"
-    params.append(limit)
+        stmt = stmt.where(Memory.task_type == task_type)
+    stmt = stmt.order_by(Memory.quality_score.desc(), Memory.created_at.desc()).limit(limit)
+    with _get_engine().connect() as conn:
+        rows = conn.execute(stmt).all()
     results = []
-    for r in conn.execute(query, params).fetchall():
-        mem = dict(r)
+    for row in rows:
+        mem = dict(row._mapping)
         for field in ("tags", "successes", "lessons", "improvements"):
             if mem.get(field):
                 try:
@@ -211,8 +232,8 @@ def db_search_memories(keyword: str = "", task_type: str = "", limit: int = 20) 
 
 
 def db_count_memories() -> int:
-    row = _get_conn().execute("SELECT COUNT(*) as cnt FROM memories").fetchone()
-    return row["cnt"] if row else 0
+    with _get_engine().connect() as conn:
+        return conn.execute(select(func.count()).select_from(Memory)).scalar() or 0
 
 
 def db_get_all_memories() -> list[dict]:
@@ -220,13 +241,14 @@ def db_get_all_memories() -> list[dict]:
 
 
 def db_get_stats() -> dict:
-    conn = _get_conn()
-    return {
-        "total_tasks": conn.execute("SELECT COUNT(*) as cnt FROM tasks").fetchone()["cnt"],
-        "completed_tasks": conn.execute(
-            "SELECT COUNT(*) as cnt FROM tasks WHERE status = 'completed'").fetchone()["cnt"],
-        "failed_tasks": conn.execute(
-            "SELECT COUNT(*) as cnt FROM tasks WHERE status = 'failed'").fetchone()["cnt"],
-        "total_users": conn.execute("SELECT COUNT(*) as cnt FROM users").fetchone()["cnt"],
-        "total_memories": conn.execute("SELECT COUNT(*) as cnt FROM memories").fetchone()["cnt"],
-    }
+    with _get_engine().connect() as conn:
+        return {
+            "total_tasks": conn.execute(select(func.count()).select_from(Task)).scalar() or 0,
+            "completed_tasks": conn.execute(
+                select(func.count()).select_from(Task).where(Task.status == "completed")
+            ).scalar() or 0,
+            "failed_tasks": conn.execute(
+                select(func.count()).select_from(Task).where(Task.status == "failed")
+            ).scalar() or 0,
+            "total_memories": conn.execute(select(func.count()).select_from(Memory)).scalar() or 0,
+        }

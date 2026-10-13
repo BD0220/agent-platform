@@ -10,6 +10,9 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 _TMP = tempfile.mkdtemp(prefix="db_test_")
 os.environ["AGENT_DATA_DIR"] = _TMP
 os.environ["AGENT_DELIVERIES_DIR"] = os.path.join(_TMP, "del")
+# 测试必须跑在临时 SQLite 上，不能碰真实 MySQL：显式清掉 MYSQL_* 配置
+for _k in ("MYSQL_USER", "MYSQL_PASSWORD", "MYSQL_HOST", "MYSQL_PORT", "MYSQL_DATABASE"):
+    os.environ.pop(_k, None)
 
 # 重新加载路径模块以确保使用临时目录
 for mod in list(sys.modules.keys()):
@@ -36,21 +39,6 @@ def test_init_idempotent():
     assert "total_tasks" in stats
     assert "total_memories" in stats
     print("✓ test_init_idempotent")
-
-
-def test_user_crud():
-    ok, msg = db.db_create_user("testuser", "fakehash123")
-    assert ok, msg
-    user = db.db_get_user("testuser")
-    assert user is not None
-    assert user["username"] == "testuser"
-
-    ok2, _ = db.db_create_user("testuser", "anotherhash")
-    assert not ok2, "重复用户名应失败"
-
-    users = db.db_get_all_users()
-    assert "testuser" in users
-    print("✓ test_user_crud")
 
 
 def test_task_crud():
@@ -129,7 +117,6 @@ def test_concurrent_task_creation():
 if __name__ == "__main__":
     setup()
     test_init_idempotent()
-    test_user_crud()
     test_task_crud()
     test_task_fail()
     test_memory_crud()

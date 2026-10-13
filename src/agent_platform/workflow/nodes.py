@@ -252,6 +252,38 @@ def route_after_tools(state: WorkflowState) -> str:
     return "agent"
 
 
+# 交付物里的流程标记词 —— 判断"内容是否残缺"时要先剔掉
+_MARKER_RE = re.compile(
+    r"\[(?:程序员已生成代码|产品经理已生成需求分析|测试通过|测试未通过)\]")
+
+
+def _write_deliverable(path: str, text: str, min_len: int = 60):
+    """安全的交付物写入：残缺内容绝不覆盖已有的完整文件。
+
+    实测踩坑：多轮重做后某轮程序员输出退化成一句 ``[程序员已生成代码]``，
+    这里直接拿它把磁盘上 19KB 的真代码覆盖没了。规则：
+      - 新内容剔掉标记词后短于 min_len → 不写（保留旧文件）；
+      - 旧文件比新内容更长 → 不写（旧版更完整）。
+    """
+    text = (text or "").strip()
+    core = _MARKER_RE.sub("", text).strip()
+    if len(core) < min_len:
+        safe_print(f"[交付物] 新内容过短（{len(core)} 字），保留原文件: {os.path.basename(path)}")
+        return
+    try:
+        old = ""
+        if os.path.exists(path):
+            with open(path, "r", encoding="utf-8", errors="replace") as f:
+                old = f.read().strip()
+    except OSError:
+        old = ""
+    if len(old) > len(text):
+        safe_print(f"[交付物] 旧文件更完整（{len(old)} > {len(text)}），不覆盖: {os.path.basename(path)}")
+        return
+    with open(path, "w", encoding="utf-8") as f:
+        f.write(text)
+
+
 def conclusion_node(state: WorkflowState) -> dict:
     """收尾：写交付物、沉淀记忆、清理上下文。"""
     safe_print("\n[工作流] CONCLUSION: 生成交付物...")
@@ -288,21 +320,18 @@ def conclusion_node(state: WorkflowState) -> dict:
     if not test_report:
         test_report = full_state.get("测试报告", "")
 
-    # 写交付物
-    if requirements and delivery_dir:
-        with open(os.path.join(delivery_dir, "需求分析.md"), "w", encoding="utf-8") as f:
-            f.write(clean_markdown(str(requirements)))
-
-    if code and delivery_dir:
-        code_path = os.path.join(delivery_dir, "代码.py")
-        from ..agents.extractor import extract_code
-        cleaned = extract_code(str(code))
-        with open(code_path, "w", encoding="utf-8") as f:
-            f.write(cleaned)
-
-    if test_report and delivery_dir:
-        with open(os.path.join(delivery_dir, "测试报告.md"), "w", encoding="utf-8") as f:
-            f.write(str(test_report))
+    # 写交付物（安全写入：残缺轮次不会覆盖之前更完整的产出）
+    if delivery_dir:
+        if requirements:
+            _write_deliverable(os.path.join(delivery_dir, "需求分析.md"),
+                               clean_markdown(str(requirements)), min_len=60)
+        if code:
+            from ..agents.extractor import extract_code
+            _write_deliverable(os.path.join(delivery_dir, "代码.py"),
+                               extract_code(str(code)), min_len=60)
+        if test_report:
+            _write_deliverable(os.path.join(delivery_dir, "测试报告.md"),
+                               str(test_report), min_len=60)
 
     if delivery_dir and os.path.exists(delivery_dir):
         files = os.listdir(delivery_dir)

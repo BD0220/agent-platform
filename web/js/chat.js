@@ -182,6 +182,10 @@ AB.chat = (() => {
     if (kind === "done") {
       if (ev.stopped) return el("div", "sys", `<span class="chip">任务已终止</span>`);
       const r = ev.result || {};
+      if (r["测试状态"] === "未通过") {
+        return el("div", "sys",
+          `<span class="chip" style="background:var(--warn-bg);color:var(--warn)">⚠ 任务结束：测试未通过（可继续提修改要求）</span>`);
+      }
       const bits = [];
       if (r["测试状态"]) bits.push("测试：" + r["测试状态"]);
       if (r["主Agent调度轮数"]) bits.push("调度 " + r["主Agent调度轮数"] + " 轮");

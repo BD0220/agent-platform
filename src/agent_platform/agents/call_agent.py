@@ -113,7 +113,9 @@ def call_agent(role: str, prompt: str, messages_override: list[dict] = None) -> 
 
     # 流式生成：片段实时推给界面（谁的气泡在长字，就是谁在干活），
     # 返回值和 chat() 完全等价，下面的工具调用处理不受影响。
-    on_delta = _delta_emitter(role)
+    # 产品经理不流式：它的输出是结构化 JSON（界面有专门的渲染），
+    # 把原始 JSON 逐字长在气泡里只会显得很乱。
+    on_delta = None if role == "产品经理" else _delta_emitter(role)
     chat_result = llm.chat_collect(messages=messages,
                                    tools=tool_schemas if tool_schemas else None,
                                    on_delta=on_delta)

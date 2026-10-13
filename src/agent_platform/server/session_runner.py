@@ -229,12 +229,25 @@ def _emit_deliverables(session_id: str, result: dict) -> None:
     b = bus.get_bus()
     b.publish(session_id, KIND_DELIVERABLE, files=files, delivery_dir=delivery_dir)
 
+    # 收尾总结：结构化 + 说实话 —— 测试没通过就明说，不要伪装成"全部完成"
+    turns = result.get("主Agent调度轮数", 0)
+    test_state = result.get("测试状态") or "未知"
+    passed = test_state == "通过"
+    head = "✅ 任务完成" if passed else "⚠️ 任务结束（测试未通过）"
+    lines = [
+        f"**{head}**",
+        f"- 调度轮数：{turns} 轮",
+        f"- 测试结果：{test_state}"
+        + ("" if passed else "（已达调度上限，未能在本轮内全部修复）"),
+        f"- 交付物：{('、'.join(f['name'] for f in files)) if files else '（无有效产出）'}",
+        f"- 位置：`{delivery_dir}`" if delivery_dir else "- 位置：默认交付目录",
+    ]
+    if not passed:
+        lines.append("\n可以在对话框里继续提修改要求（例如\"把 X 问题修掉\"），"
+                     "主Agent 会安排程序员修复后重新测试。")
+
     b.publish(session_id, KIND_AGENT, agent="主Agent", phase="done",
-              content=(
-                  f"全部环节已完成。测试状态：{result.get('测试状态') or '未知'}，"
-                  f"共调度 {result.get('主Agent调度轮数', 0)} 轮。"
-                  + (f"\n\n交付目录：`{delivery_dir}`" if delivery_dir else "")
-              ))
+              content="\n".join(lines))
 
     b.publish(session_id, KIND_DONE,
               result={

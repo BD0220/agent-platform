@@ -28,7 +28,11 @@ def product_manager_work(user_request: str = None):
 
     if "_parse_error" in structured:
         safe_print(f"[产品经理] JSON 解析失败，回退到自由文本模式: {structured.get('_parse_error')}")
-        prompt = f"请分析以下用户需求，输出详细的功能清单：\n\n{user_request}"
+        prompt = (
+            f"请分析以下用户需求，输出详细的功能清单：\n\n{user_request}\n\n"
+            "输出格式要求：使用 Markdown（## 需求概述、## 功能清单 两节，"
+            "功能用列表逐条给出，每条含验收标准）。不要输出 JSON。"
+        )
         result = call_agent("产品经理", prompt)
     else:
         result = _format_requirements_as_markdown(structured)
@@ -89,7 +93,11 @@ def programmer_work(master_task: str = None):
     if clean != raw_result:
         safe_print("[程序员] 已自动清洗输出，剥离非代码内容")
 
-    save_state({"代码": clean})
+    # 防退化：某轮输出残缺（只剩标记词/空壳）时，不覆盖状态里更完整的上一版代码
+    if len(clean.strip()) >= 50:
+        save_state({"代码": clean})
+    else:
+        safe_print(f"[程序员] 本轮无有效代码（{len(clean.strip())} 字），保留上一版")
 
     prog_ctx["last_code_length"] = len(clean)
     prog_ctx["call_count"] = prog_ctx.get("call_count", 0) + 1
@@ -128,7 +136,11 @@ def programmer_fix_work(master_task: str = None):
     if clean != raw_result:
         safe_print("[程序员] 已自动清洗输出，剥离非代码内容")
 
-    save_state({"代码": clean})
+    # 防退化：修复轮同理，残缺输出不覆盖上一版
+    if len(clean.strip()) >= 50:
+        save_state({"代码": clean})
+    else:
+        safe_print(f"[程序员] 本轮无有效代码（{len(clean.strip())} 字），保留上一版")
 
     prog_ctx["last_code_length"] = len(clean)
     prog_ctx["fix_count"] = prog_ctx.get("fix_count", 0) + 1

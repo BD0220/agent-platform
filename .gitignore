@@ -41,6 +41,13 @@ data/chroma_db/
 data/.gitkeep
 !data/.gitkeep
 
+# 运行期设置：含用户填入的 API Key，绝不能提交
+data/settings.json
+# 用户注册的本地工作空间目录（含本机绝对路径）
+data/workspaces.json
+# 会话记录（含对话内容与工作空间路径）
+data/sessions/
+
 # Deliveries (generated per task)
 deliveries/
 

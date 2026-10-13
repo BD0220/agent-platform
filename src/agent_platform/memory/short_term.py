@@ -3,8 +3,10 @@
 Redis 连接参数从环境变量读取（``REDIS_HOST`` / ``REDIS_PORT`` / ``REDIS_DB``），
 Docker Compose 和本地开发均可通过 ``.env`` 配置。
 """
+import hashlib
 import json
 import os
+import re
 from datetime import datetime
 
 from ..utils.paths import DATA_DIR
@@ -14,6 +16,27 @@ SHORT_TERM_TTL = 86400  # 24 小时
 
 _redis_client = None
 _redis_available = None
+
+# Windows 文件名不允许的字符（冒号首当其冲）
+_UNSAFE_FILENAME = re.compile(r'[^A-Za-z0-9._\-]')
+
+
+def _safe_filename(session_id: str) -> str:
+    """把会话 key 转成合法的降级文件名。
+
+    会话 key 形如 ``task:<task_id>:state``，里面带冒号 —— 而 Windows 文件名
+    不允许冒号，直接拿去拼路径会抛 ``OSError: [Errno 22] Invalid argument``。
+    这个异常之前没被捕获，导致整个降级通道形同虚设：每存一次状态就报一次错，
+    短期记忆在 Windows 上等于从来没生效过。
+    转义会丢信息（``a:b`` 和 ``a_b`` 会撞名），所以补一个短哈希后缀兜底。
+    """
+    safe = _UNSAFE_FILENAME.sub("_", session_id)[:80]
+    digest = hashlib.md5(session_id.encode("utf-8")).hexdigest()[:8]
+    return f"{safe}_{digest}"
+
+
+def _fallback_path(session_id: str):
+    return DATA_DIR / f".session_{_safe_filename(session_id)}.json"
 
 
 def _redis_kwargs() -> dict:
@@ -63,7 +86,7 @@ def save_context(session_id: str, data: dict):
         except Exception as e:
             safe_print(f"[短期记忆] Redis 写入失败，降级 JSON: {e}")
 
-    fallback_file = DATA_DIR / f".session_{session_id}.json"
+    fallback_file = _fallback_path(session_id)
     payload = dict(data)
     payload["_fallback"] = True
     payload["_expires_at"] = datetime.now().timestamp() + SHORT_TERM_TTL
@@ -71,9 +94,9 @@ def save_context(session_id: str, data: dict):
         fallback_file.parent.mkdir(parents=True, exist_ok=True)
         with open(fallback_file, "w", encoding="utf-8") as f:
             json.dump(payload, f, ensure_ascii=False, indent=2)
-    except (UnicodeEncodeError, UnicodeDecodeError):
-        with open(fallback_file, "w", encoding="utf-8") as f:
-            json.dump(payload, f, ensure_ascii=True, indent=2)
+    except (UnicodeEncodeError, UnicodeDecodeError, OSError) as e:
+        # 降级通道本身再出错也不能让调用方（状态管理器）挂掉
+        safe_print(f"[短期记忆] 降级文件写入失败: {e}")
 
 
 def load_context(session_id: str) -> dict:
@@ -86,7 +109,10 @@ def load_context(session_id: str) -> dict:
         except Exception as e:
             safe_print(f"[短期记忆] Redis 读取失败: {e}")
 
-    fallback_file = DATA_DIR / f".session_{session_id}.json"
+    # 必须和 save_context 用同一个路径函数。这里曾经写死过旧式路径，
+    # 结果成了"写一个文件、读另一个文件"：save_state 写进新路径，
+    # load_state 读旧路径永远读不到，整条状态链路上读到的都是空字典。
+    fallback_file = _fallback_path(session_id)
     if fallback_file.exists():
         try:
             with open(fallback_file, "r", encoding="utf-8") as f:
@@ -108,5 +134,5 @@ def delete_context(session_id: str):
             r.delete(f"session:{session_id}:context")
         except Exception as e:
             safe_print(f"[短期记忆] Redis 删除失败: {e}")
-    fallback_file = DATA_DIR / f".session_{session_id}.json"
+    fallback_file = _fallback_path(session_id)
     fallback_file.unlink(missing_ok=True)

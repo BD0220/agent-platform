@@ -109,7 +109,9 @@ def programmer_fix_work(master_task: str = None):
     if master_task:
         prompt = (
             f"## 主Agent分派的修复任务\n{master_task}\n\n"
-            f"## 当前代码\n{代码}\n\n请根据上述修复要求输出修改后的完整代码。"
+            f"## 测试报告\n{测试报告}\n\n"
+            f"## 当前代码\n{代码}\n\n"
+            f"请结合测试报告原文和上述修复要求，输出修改后的完整代码。"
         )
     else:
         prompt = (
@@ -137,42 +139,58 @@ def programmer_fix_work(master_task: str = None):
 
 
 def _judge_test_result(result: str) -> bool:
-    """从测试员输出中智能判断测试是否通过。
+    """从测试员输出中判断测试是否通过。
 
-    判定优先级：
-    1. 运行结果中出现 PASS / 全部通过 / 所有测试用例通过 → 通过
-    2. 出现 FAIL / 失败 / Error / Traceback → 未通过
-    3. 明确出现"测试通过"或"无问题" → 通过
-    4. 兜底 → 未通过（避免漏报）
+    **优先读测试员显式声明的结论行**（``测试结论：通过`` / ``测试结论：未通过``），
+    只有找不到结论行时才退回关键词启发式。
+
+    为什么不能再只靠关键词扫全文：测试员被要求把 ``run_python_file`` 的原始
+    输出和堆栈一起贴进报告，于是正文里出现 ``Error``、``Traceback``、
+    用例函数名都很正常 —— 拿 ``FAIL`` / ``ERROR`` 去扫整篇，会把
+    "其实跑通了、只是老实贴了原始输出"误判成"测试失败"。
+    实测就踩到过：主 Agent 复核的结论是"退出码 0、14 条用例全部通过"，
+    而这里判成了未通过，界面最终显示"测试状态：未通过"，与事实相反。
+
+    关键词判定保留为兜底（老提示词、外部直接调用等场景），
+    但把"显式结论"的优先级放到最高。
     """
     import re
-    text = result.upper()
+    text = result or ""
+    upper = text.upper()
 
-    # 明确失败信号（优先级最高）
-    fail_signals = ["FAIL", "FAILED", "ERROR", "TRACEBACK", "ASSERTIONERROR", "测试失败", "存在失败", "未通过"]
+    # 1) 显式结论行 —— 只看这一行，完全不受正文原始输出干扰
+    explicit = re.findall(
+        r"测试结论\s*[:：]\s*\**\s*(通过|未通过|不通过|失败)", text)
+    if explicit:
+        return explicit[-1] == "通过"
+
+    # 2) 明确失败信号（优先级最高）
+    fail_signals = ["FAIL", "FAILED", "ERROR", "TRACEBACK", "ASSERTIONERROR",
+                    "测试失败", "存在失败", "未通过"]
     # 但要排除"0 failed"这种否定形式
     for sig in fail_signals:
-        if sig in text:
+        if sig in upper:
             # 检查是否被否定（如 "0 failed"、"没有失败"）
-            idx = text.find(sig)
-            before = text[max(0, idx - 12):idx]
+            idx = upper.find(sig)
+            before = upper[max(0, idx - 12):idx]
             if re.search(r"(0\s*|NO\s*|无\s*|没有\s*|ZERO\s*)", before):
                 continue
             return False
 
-    # 明确通过信号
-    pass_signals = ["ALL PASSED", "ALL TESTS PASSED", "所有测试用例通过", "全部通过", "测试通过", "无问题", "0 FAIL"]
+    # 3) 明确通过信号
+    pass_signals = ["ALL PASSED", "ALL TESTS PASSED", "所有测试用例通过",
+                    "全部通过", "测试通过", "无问题", "0 FAIL"]
     for sig in pass_signals:
-        if sig in text:
+        if sig in upper:
             return True
 
-    # 检查 PASS 计数：有 PASS 行且无 FAIL 行
-    pass_count = len(re.findall(r"\bPASS\b", text))
-    fail_count = len(re.findall(r"\bFAIL\b", text))
+    # 4) 检查 PASS / FAIL 计数：有 PASS 行且无 FAIL 行
+    pass_count = len(re.findall(r"\bPASS\b", upper))
+    fail_count = len(re.findall(r"\bFAIL\b", upper))
     if pass_count > 0 and fail_count == 0:
         return True
 
-    # 兜底
+    # 5) 兜底：判为未通过（宁可漏报通过，也不要把失败的代码说成通过）
     return False
 
 
@@ -214,8 +232,20 @@ def tester_work(master_task: str = None):
 
 
 def dispatch_sub_agent(agent_name: str, task: str) -> str:
-    """主Agent 通过 dispatch_agent 工具调用此函数，将任务分派给指定子Agent。"""
+    """主Agent 通过 dispatch_agent 工具调用此函数，将任务分派给指定子Agent。
+
+    这里是"子Agent 真正开工"的地方，因此额外承担两件事：
+    1. **协作式取消的检查点** —— 用户点了终止后，下一个交接点立刻退出，
+       不会只停在界面上而让模型继续烧 token；
+    2. **把工作过程广播到会话事件流** —— 前端群聊里的气泡就是这里发出去的。
+    """
     from datetime import datetime
+    from ..runtime import bus
+    from ..runtime.control import get_control
+
+    # 检查点：进入子Agent 之前确认用户没有要求终止
+    get_control().check_stop()
+
     safe_print(f"\n[主Agent调度] 分派任务给 {agent_name}，任务: {task[:100]}...")
 
     master_ctx = load_context("agent_master")
@@ -228,14 +258,25 @@ def dispatch_sub_agent(agent_name: str, task: str) -> str:
     master_ctx["dispatch_count"] = master_ctx.get("dispatch_count", 0) + 1
     save_context("agent_master", master_ctx)
 
+    bus.emit(bus.KIND_AGENT, agent=agent_name, phase="working",
+             content=f"收到任务，开始处理：\n\n{task[:400]}")
+
     if agent_name == "产品经理":
-        return product_manager_work(task)
+        output = product_manager_work(task)
+        detail = load_state().get("功能清单", "")
     elif agent_name == "程序员":
         programmer_work(master_task=task)
-        return f"[程序员已生成代码]\n\n{load_state().get('代码', '')}"
+        detail = load_state().get("代码", "")
+        output = f"[程序员已生成代码]\n\n{detail}"
     elif agent_name == "测试员":
         report, passed = tester_work(master_task=task)
         status = "测试通过" if passed else "测试未通过"
+        detail = report
+        bus.emit(bus.KIND_AGENT, agent=agent_name, phase="done",
+                 content=report, status=status)
         return f"[{status}]\n\n{report}"
+    else:
+        return f"未知Agent: {agent_name}"
 
-    return f"未知Agent: {agent_name}"
+    bus.emit(bus.KIND_AGENT, agent=agent_name, phase="done", content=detail)
+    return output

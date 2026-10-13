@@ -39,8 +39,11 @@ def init_node(state: WorkflowState) -> dict:
     if task_id:
         set_current_task(task_id)
 
-    delivery_dir = get_current_task_dir()
+    # 顺序很重要：get_current_task_dir() 是从 state 里读任务名来拼目录名的，
+    # 所以必须先落 task_name / user_request，否则每一步都读不到，
+    # 交付目录就只能退化成 "任务_日期时间" 这种没意义的名字。
     save_state({"task_name": task_name, "user_request": user_request})
+    delivery_dir = get_current_task_dir()
     log_task_start(task_name, user_request)
 
     safe_print(f"\n[工作流] INIT: 任务 '{task_name}' (task_id={task_id or 'cli'})")
@@ -184,6 +187,13 @@ def tool_node(state: WorkflowState) -> dict:
             try:
                 exec_result = execute_tool_structured(func_name, arguments)
             except Exception as e:
+                # 终止信号必须向上穿透。之前这里是一把抓的 except Exception，
+                # 把 TaskStopped 也当成"工具执行失败"变成一段字符串喂回模型，
+                # 于是用户点了终止，Agent 却当作一次普通失败继续往下跑，
+                # 最后还正常收尾成"任务完成"—— 终止按钮等于失效。
+                from ..runtime.control import TaskStopped
+                if isinstance(e, TaskStopped):
+                    raise
                 exec_result = f"工具执行失败: {e}"
             preview = exec_result[:150] + ("..." if len(exec_result) > 150 else "")
             safe_print(f"[{func_name}] → {preview}")

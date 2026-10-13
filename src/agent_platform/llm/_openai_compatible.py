@@ -66,3 +66,28 @@ class OpenAICompatibleProvider(LLMProvider):
                 content=delta.content or "",
                 finish_reason=chunk.choices[0].finish_reason or "",
             )
+
+
+class RegistryProvider(OpenAICompatibleProvider):
+    """由注册表里的**一条数据**驱动的 Provider。
+
+    上面那个基类故意留了 ``provider_name`` 抽象属性没实现（DeepSeek / OpenAI
+    各自的子类去实现它）。注册表方案下没有必要再为每家厂商写子类 ——
+    这个类直接吃一条字典，把 (base_url, model, api_key) 三件套用上就行。
+    """
+
+    def __init__(self, entry: dict, api_key: str, base_url: str = ""):
+        super().__init__(
+            api_key=api_key,
+            base_url=(base_url or entry.get("base_url") or "").rstrip("/"),
+            model=entry.get("model") or entry.get("id") or "",
+        )
+        self._entry = entry
+
+    @property
+    def provider_name(self) -> str:
+        return self._entry.get("vendor") or "registry"
+
+    @property
+    def entry(self) -> dict:
+        return self._entry

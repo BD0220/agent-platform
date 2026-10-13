@@ -12,3 +12,14 @@ class WorkflowState(TypedDict, total=False):
     max_turns: int
     status: str
     completed: bool
+
+    # ── 子Agent 产出（由 conclusion_node 汇总，供 _build_result 读取）──
+    # 注意：LangGraph 只沿 schema 里声明过的通道传递状态，没声明的键会在
+    # 出图时被静默丢弃（不报错，只是永远读不到）。这几个字段之前就漏了声明，
+    # 导致 conclusion_node 辛苦汇总出来的产出拿不到，表现为交付物面板空白、
+    # 测试状态缺失。
+    requirements: str
+    code: str
+    test_report: str
+    test_passed: bool
+    plan: dict

@@ -3,6 +3,15 @@ from .registry import _get_tool, get_tool_names, map_arguments, validate_argumen
 from ..utils.safe_print import safe_print
 
 
+def _is_stop_signal(exc: BaseException) -> bool:
+    """用户终止信号判定（延迟导入，避免 runtime ↔ tools 之间出现循环依赖）。"""
+    try:
+        from ..runtime.control import TaskStopped
+    except ImportError:
+        return False
+    return isinstance(exc, TaskStopped)
+
+
 def _make_error(error_type: str, message: str, tool_name: str = "") -> str:
     parts = [f"[工具错误]"]
     if tool_name:
@@ -23,6 +32,11 @@ def execute_tool(tool_name: str, params: str = "", content: str = "", retry: boo
         try:
             return tool.function(params, content)
         except Exception as e:
+            # 用户主动终止是一个控制流信号，不是"工具执行失败"。
+            # 如果在这里被当成错误重试并按错误字符串返回，Agent 会继续往下跑，
+            # 终止按钮就形同虚设 —— 所以必须原样穿透到会话执行器。
+            if _is_stop_signal(e):
+                raise
             last_error = str(e)
             if attempt == 0:
                 safe_print(f"[工具系统] {tool_name} 执行失败 (第1次)，准备重试: {e}")

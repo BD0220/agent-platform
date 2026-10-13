@@ -10,6 +10,24 @@ from ..storage.state import save_state, load_state
 from ..memory.short_term import load_context, save_context
 from ..utils.safe_print import safe_print
 from .definitions import SYSTEM_PROMPTS, AGENT_META, AGENT_STEP_MAP
+from ..runtime import bus
+from ..runtime.control import get_control
+
+# 块形式 [TOOL_CALL: 名称: 参数] ... [/TOOL_CALL]
+_TOOL_BLOCK_RE = re.compile(r'\[TOOL_CALL:[^\]]*\]\s*.*?\[/TOOL_CALL\]', re.DOTALL)
+# 单行形式 [TOOL_CALL: 名称: 参数]
+_TOOL_LINE_RE = re.compile(r'\[TOOL_CALL:[^\]]*\]')
+
+
+def _strip_tool_calls(text: str) -> str:
+    """剥离工具调用指令，只留给人看的自然语言。
+
+    群聊里展示的是"主Agent 说了什么"，而 ``[TOOL_CALL: dispatch_agent: ...]``
+    是给机器看的协议文本，混在气泡里会很脏。
+    """
+    text = _TOOL_BLOCK_RE.sub('', text or '')
+    text = _TOOL_LINE_RE.sub('', text)
+    return text.strip()
 
 
 def _extract_plan_summary(assistant_msg: str) -> str:
@@ -74,6 +92,9 @@ def master_agent_loop(user_request: str, memory_context: str = "") -> dict:
     turn = 0
 
     for turn in range(1, MAX_TURNS + 1):
+        # 检查点：每轮开始前确认用户没有要求终止，避免"点了终止还在烧 token"
+        get_control().check_stop()
+
         safe_print(f"\n{'=' * 60}")
         safe_print(f"  [主Agent] 第 {turn} 轮对话")
         safe_print(f"{'=' * 60}")
@@ -86,6 +107,15 @@ def master_agent_loop(user_request: str, memory_context: str = "") -> dict:
 
         preview = assistant_msg[:300] + ("..." if len(assistant_msg) > 300 else "")
         safe_print(f"[主Agent] 输出预览:\n{preview}")
+
+        # 把主Agent 这一轮的发言广播到会话事件流（剥掉工具协议文本）
+        visible = _strip_tool_calls(assistant_msg)
+        if visible:
+            bus.emit(bus.KIND_PLAN if turn == 1 else bus.KIND_AGENT,
+                     agent="主Agent",
+                     phase="plan" if turn == 1 else "thinking",
+                     turn=turn,
+                     content=visible[:2000])
 
         if turn == 1 and not task_plan["summary"]:
             task_plan["summary"] = _extract_plan_summary(assistant_msg)

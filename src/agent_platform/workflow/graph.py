@@ -109,6 +109,15 @@ def _build_result(user_request: str, state: dict) -> dict:
     from ..storage.state import load_state
     full_state = load_state()
 
+    # 为什么"测试状态"不能只从 full_state 取：
+    # 走到这里时 conclusion_node 已经 cleanup_state() 把短期状态清掉了，
+    # full_state 恒为空字典 —— 于是这个字段永远是空串，界面上一直显示
+    # "测试状态：未知"，哪怕测试员明明跑完并给出了结论。
+    # 而 test_passed 是 conclusion_node 在**清理之前**读出来的布尔值，
+    # 它被放进了图状态（final_state）里，这才是可靠来源。
+    tp = state.get("test_passed")
+    test_state = "通过" if tp else ("未通过" if tp is False else "")
+
     return {
         "task": user_request,
         "task_name": state.get("task_name", ""),
@@ -117,7 +126,7 @@ def _build_result(user_request: str, state: dict) -> dict:
         "功能清单": full_state.get("功能清单", state.get("requirements", "")),
         "代码": full_state.get("代码", state.get("code", "")),
         "测试报告": full_state.get("测试报告", state.get("test_report", "")),
-        "测试状态": full_state.get("测试状态", ""),
+        "测试状态": test_state,
         "任务规划": full_state.get("任务规划", state.get("plan", {})),
         "交付目录": state.get("delivery_dir", ""),
     }

@@ -1,5 +1,6 @@
 """Agent 调用核心 —— 发送 System Prompt + 用户消息到 LLM，处理工具调用。"""
 import json
+import time
 
 from ..llm import get_llm
 from ..tools import get_tool_definitions, get_tool_schemas, parse_and_execute_tool_calls, execute_tool_structured
@@ -48,6 +49,40 @@ def _parse_tool_calls_from_message(tool_calls: list[dict]) -> list[dict]:
     return results
 
 
+def _delta_emitter(role: str):
+    """把 LLM 流式片段按节流发给事件总线（phase=delta，只进内存不落盘）。
+
+    为什么要节流：token 级回调一秒几十次，每个片段都发一条 SSE 事件
+    会把前端事件流和内存队列撑爆。攒够 80 字或满 0.3 秒才发一条。
+    CLI 直跑（无会话上下文）时 bus.emit 内部会静默忽略。
+    """
+    try:
+        from ..runtime import bus
+    except Exception:
+        return None
+
+    def on_delta(text: str) -> None:
+        nonlocal state
+        if not text:
+            return
+        now = time.time()
+        state["buf"] += text
+        if now - state["last"] >= 0.3 or len(state["buf"]) >= 80:
+            bus.emit(bus.KIND_AGENT, agent=role, phase="delta", content=state["buf"])
+            state["buf"] = ""
+            state["last"] = now
+
+    state = {"buf": "", "last": 0.0}
+
+    def flush():
+        if state["buf"]:
+            bus.emit(bus.KIND_AGENT, agent=role, phase="delta", content=state["buf"])
+            state["buf"] = ""
+
+    on_delta.flush = flush
+    return on_delta
+
+
 def call_agent(role: str, prompt: str, messages_override: list[dict] = None) -> str:
     """
     调用 LLM，发送角色 system prompt（含工具描述）+ 用户 prompt。
@@ -76,7 +111,14 @@ def call_agent(role: str, prompt: str, messages_override: list[dict] = None) -> 
             {"role": "user", "content": prompt},
         ]
 
-    chat_result = llm.chat(messages=messages, tools=tool_schemas if tool_schemas else None)
+    # 流式生成：片段实时推给界面（谁的气泡在长字，就是谁在干活），
+    # 返回值和 chat() 完全等价，下面的工具调用处理不受影响。
+    on_delta = _delta_emitter(role)
+    chat_result = llm.chat_collect(messages=messages,
+                                   tools=tool_schemas if tool_schemas else None,
+                                   on_delta=on_delta)
+    if on_delta is not None:
+        on_delta.flush()
 
     result = chat_result.content or ""
 

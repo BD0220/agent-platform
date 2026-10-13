@@ -45,13 +45,17 @@ class SessionBus:
         self._running: dict[str, bool] = {}
 
     # ── 写入侧 ──────────────────────────────────────────────
-    def publish(self, sid: str, kind: str, **payload) -> dict | None:
+    def publish(self, sid: str, kind: str, _persist: bool = True, **payload) -> dict | None:
         """追加一条事件并唤醒所有等待者。无 sid 时静默忽略。
 
         第一个参数刻意叫 ``sid`` 而不是 ``session_id``：事件负载里天然会带
         一个 ``session_id`` 字段（前端要靠它知道消息属于哪个会话），
         如果形参同名，``publish(sid, kind, **payload)`` 会直接抛
         TypeError: got multiple values for argument。命名避让比到处 pop 更稳。
+
+        ``_persist=False`` 用于 LLM 流式输出的增量片段：只推给正在看的
+        浏览器，不写进会话日志 —— 否则一次任务要往 JSONL 里塞几百条
+        碎片，历史回放时靠最终的 done 消息就够了。
         """
         if not sid:
             return None
@@ -65,8 +69,9 @@ class SessionBus:
             bucket.append(event)
             self._cond.notify_all()
 
-        # 落盘放在锁外：磁盘 IO 不能阻塞其他 SSE 读线程
-        self._persist(sid, event)
+        if _persist:
+            # 落盘放在锁外：磁盘 IO 不能阻塞其他 SSE 读线程
+            self._persist(sid, event)
         return event
 
     @staticmethod

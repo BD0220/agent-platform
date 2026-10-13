@@ -88,3 +88,19 @@ class LLMProvider(ABC):
     def chat_stream(self, messages: list[dict], tools: list[dict] = None,
                     temperature: float = 0.7) -> Generator[ChatChunk, None, None]:
         ...
+
+    def chat_collect(self, messages: list[dict], tools: list[dict] = None,
+                     temperature: float = 0.7, on_delta=None) -> ChatResult:
+        """流式生成 + 汇总成完整 ChatResult。
+
+        ``on_delta(text)`` 在每个内容片段到达时被回调（用于界面实时显示），
+        最终返回和 ``chat()`` 等价的结果。基类默认降级为非流式 —— 各家
+        Provider 想支持实时显示就覆写它；不支持时功能照常，只是没有逐字效果。
+        """
+        if on_delta is not None:
+            # 非流式路径：把整段内容一次性回调，保证界面至少能显示
+            result = self.chat(messages, tools, temperature)
+            if result.content:
+                on_delta(result.content)
+            return result
+        return self.chat(messages, tools, temperature)

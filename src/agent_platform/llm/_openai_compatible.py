@@ -67,6 +67,66 @@ class OpenAICompatibleProvider(LLMProvider):
                 finish_reason=chunk.choices[0].finish_reason or "",
             )
 
+    def chat_collect(self, messages: list[dict], tools: list[dict] = None,
+                     temperature: float = 0.7, on_delta=None) -> ChatResult:
+        """流式生成：边出字边回调 on_delta，最后汇总成完整 ChatResult。
+
+        tool_calls 在流式里是分片到达的（按 index 增量拼 name/arguments），
+        这里负责把它们拼回和 chat() 一样的结构，调用方无需关心差别。
+        流式失败（个别兼容端点不支持 stream_options 等）自动退回非流式。
+        """
+        kwargs = self._build_kwargs(messages, tools, temperature)
+        kwargs["stream"] = True
+        kwargs["stream_options"] = {"include_usage": True}
+        try:
+            response = self._client.chat.completions.create(**kwargs)
+        except Exception:
+            # 兜底：退回一次性生成，功能不丢，只是没有逐字效果
+            return super().chat_collect(messages, tools, temperature, on_delta)
+
+        content_parts: list[str] = []
+        tool_parts: dict[int, dict] = {}
+        usage = {}
+        finish_reason = ""
+
+        for chunk in response:
+            if getattr(chunk, "usage", None):
+                usage = {
+                    "prompt_tokens": chunk.usage.prompt_tokens,
+                    "completion_tokens": chunk.usage.completion_tokens,
+                    "total_tokens": chunk.usage.total_tokens,
+                }
+            if not chunk.choices:
+                continue
+            choice = chunk.choices[0]
+            finish_reason = choice.finish_reason or finish_reason
+            delta = choice.delta
+            if delta is None:
+                continue
+            text = delta.content or ""
+            if text and on_delta is not None:
+                on_delta(text)
+            content_parts.append(text)
+            for tc in (delta.tool_calls or []):
+                acc = tool_parts.setdefault(
+                    tc.index, {"id": "", "type": "function",
+                               "function": {"name": "", "arguments": ""}})
+                if tc.id:
+                    acc["id"] = tc.id
+                if tc.function and tc.function.name:
+                    acc["function"]["name"] += tc.function.name
+                if tc.function and tc.function.arguments:
+                    acc["function"]["arguments"] += tc.function.arguments
+
+        tool_calls = [tool_parts[i] for i in sorted(tool_parts)]
+        result = ChatResult(
+            content="".join(content_parts), tool_calls=tool_calls, usage=usage,
+            model=self._model, finish_reason=finish_reason,
+        )
+        if usage:
+            _report_usage(self._model, usage)
+        return result
+
 
 class RegistryProvider(OpenAICompatibleProvider):
     """由注册表里的**一条数据**驱动的 Provider。

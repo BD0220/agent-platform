@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>abundance</title>
+<link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+<div id="app">
+
+  <!-- ══════════ 左侧栏 ══════════ -->
+  <aside id="sidebar">
+    <div class="brand"><span class="brand-mark">⬢</span> abundance</div>
+    <button id="btn-new" class="btn-primary">＋ 新建会话</button>
+
+    <div class="side-section">
+      <div class="side-title">
+        <span>历史会话</span>
+        <button id="btn-refresh-sessions" class="icon-btn" title="刷新">↻</button>
+      </div>
+      <div id="session-list"><div class="list-hint">加载中…</div></div>
+    </div>
+
+    <div class="side-foot">
+      <label class="foot-label">工作空间</label>
+      <select id="ws-select" class="foot-select"></select>
+      <button id="btn-ws-add" class="foot-btn">＋ 添加工作空间</button>
+      <div class="side-links">
+        <button id="btn-open-more" class="side-link">⋯ 知识库 / 统计</button>
+      </div>
+    </div>
+  </aside>
+
+  <!-- ══════════ 中间：群聊 ══════════ -->
+  <main id="main">
+    <header id="chat-header">
+      <div class="ch-left">
+        <div class="ch-title" id="ch-title">abundance</div>
+        <div class="ch-sub" id="ch-sub">新会话 · 每一步交接前都会先问你</div>
+      </div>
+      <div class="ch-right">
+        <div id="members"></div>
+        <span id="status-pill" class="pill">就绪</span>
+      </div>
+    </header>
+
+    <div id="chat-scroll">
+      <div id="chat-inner"></div>
+    </div>
+
+    <div id="handoff" class="hidden">
+      <div class="ho-title">⏸ 等待你确认这次交接 <span id="ho-flow" class="ho-flow"></span></div>
+      <div class="ho-summary" id="ho-summary"></div>
+      <textarea id="ho-task" rows="3" placeholder="如需调整，可改写交给下游的任务描述…"></textarea>
+      <div class="ho-btns">
+        <button id="ho-ok" class="btn-primary">✓ 确认，继续</button>
+        <button id="ho-back" class="btn-ghost">↺ 打回重做</button>
+        <button id="ho-kill" class="btn-danger">■ 终止任务</button>
+      </div>
+    </div>
+
+    <div id="composer">
+      <textarea id="msg-box" rows="1" placeholder="一句话描述需求，或 @产品经理 / @程序员 / @测试员 单独交代事情…"></textarea>
+      <div class="composer-acts">
+        <button id="btn-stop" class="round-btn stop hidden" title="终止任务">■</button>
+        <button id="btn-send" class="round-btn send" title="发送 (Enter)">➤</button>
+      </div>
+    </div>
+  </main>
+</div>
+
+  <!-- 弹窗 -->
+  <div id="modal-mask" class="hidden">
+    <div id="modal" role="dialog"></div>
+  </div>
+
+  <script src="/js/api.js"></script>
+  <script src="/js/chat.js"></script>
+  <script src="/js/panels.js"></script>
+  <script src="/js/app.js"></script>
+</body>
+</html>

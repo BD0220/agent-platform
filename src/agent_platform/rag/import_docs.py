@@ -62,9 +62,6 @@ def import_file(file_path: str, collection_name: str = "default") -> int:
 
     try:
         coll.upsert(ids=ids, documents=documents, metadatas=metadatas)
-        from .bm25 import _bm25_index
-        for i, chunk in enumerate(chunks):
-            _bm25_index.add(ids[i], chunk, metadatas[i])
         safe_print(f"[KB导入] {filename} → {len(chunks)} chunks → collection '{collection_name}'")
         return len(chunks)
     except Exception as e:
@@ -113,9 +110,6 @@ def import_text(text: str, title: str, collection_name: str = "default") -> int:
 
     try:
         coll.upsert(ids=ids, documents=documents, metadatas=metadatas)
-        from .bm25 import _bm25_index
-        for i, chunk in enumerate(chunks):
-            _bm25_index.add(ids[i], chunk, metadatas[i])
         safe_print(f"[KB导入] '{title}' → {len(chunks)} chunks → '{collection_name}'")
         return len(chunks)
     except Exception as e:

@@ -74,7 +74,6 @@ def test_agents_import():
 
 def test_rag_import():
     from agent_platform.rag import (
-        BM25Index, _bm25_index, _build_bm25,
         advanced_search, format_memories_for_context,
         recursive_chunk, import_file, import_text, search_knowledge,
     )

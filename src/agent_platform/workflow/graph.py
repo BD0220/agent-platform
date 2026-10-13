@@ -142,7 +142,7 @@ def _run_linear_fallback(user_request: str, task_id: str = "") -> dict:
         set_current_task, cleanup_state,
     )
     from ..storage.database import init_db
-    from ..rag import advanced_search, format_memories_for_context as rag_format_memories, _build_bm25
+    from ..rag import advanced_search, format_memories_for_context as rag_format_memories
     from .. import memory
     from ..agents import master_agent_loop, extract_code
     from ..logging.logger import log_task_start, log_task_complete
@@ -153,10 +153,6 @@ def _run_linear_fallback(user_request: str, task_id: str = "") -> dict:
     set_current_task(task_id)
 
     init_db()
-    try:
-        _build_bm25()
-    except Exception as e:
-        safe_print(f"[工作流] BM25 初始化失败: {e}")
 
     task_name = extract_task_name(user_request)
     save_state({"task_name": task_name, "user_request": user_request})
@@ -164,7 +160,7 @@ def _run_linear_fallback(user_request: str, task_id: str = "") -> dict:
 
     memory_context = ""
     try:
-        relevant = advanced_search(user_request, top_k=3, use_rerank=True)
+        relevant = advanced_search(user_request, top_k=3)
         if relevant:
             memory_context = rag_format_memories(relevant)
     except Exception as e:

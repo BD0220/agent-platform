@@ -16,7 +16,7 @@ from ..llm import get_llm
 from ..tools import get_tool_definitions, get_tool_schemas, execute_tool_structured
 from ..tools.parser import parse_and_execute_tool_calls
 from ..agents.definitions import SYSTEM_PROMPTS
-from ..rag import advanced_search, format_memories_for_context as rag_format_memories, _build_bm25
+from ..rag import advanced_search, format_memories_for_context as rag_format_memories
 from .. import memory
 from ..logging.logger import log_task_start, log_task_complete
 
@@ -24,12 +24,8 @@ from .state import WorkflowState
 
 
 def init_node(state: WorkflowState) -> dict:
-    """初始化：数据库、BM25、任务名、交付目录、task_id 上下文。"""
+    """初始化：数据库、任务名、交付目录、task_id 上下文。"""
     init_db()
-    try:
-        _build_bm25()
-    except Exception as e:
-        safe_print(f"[工作流] BM25 构建失败: {e}")
 
     user_request = state["user_request"]
     task_name = extract_task_name(user_request)
@@ -65,7 +61,7 @@ def retrieve_node(state: WorkflowState) -> dict:
     messages = list(state.get("messages", []))
 
     try:
-        relevant = advanced_search(user_request, top_k=3, use_rerank=True)
+        relevant = advanced_search(user_request, top_k=3)
         if relevant:
             mem_ctx = rag_format_memories(relevant)
             safe_print(f"[工作流] RAG 命中 {len(relevant)} 条经验")

@@ -1,4 +1,13 @@
-"""Agent 调用核心 —— 发送 System Prompt + 用户消息到 LLM，处理工具调用。"""
+"""Agent 调用核心 —— 发送 System Prompt + 用户消息到 LLM，处理工具调用。
+
+2026-10-13 关键修复：补上**多轮工具循环**。
+    旧版是单发：LLM 返回一次 tool_calls，执行完把结果拼进返回值就结束 ——
+    子 Agent 永远做不了"看文件 → 写脚本 → 运行 → 写报告"这类多步工作
+    （测试员每轮只调一次 list_files 就被掐了，只能空口报"未通过"，
+    逼得主 Agent 亲自下场代跑测试，19 轮就是这么烧掉的）。
+    现在与主 Agent 的 ReAct 循环对齐：工具结果回填消息列表，让模型继续，
+    直到它不再发起工具调用（或达到轮数上限）。
+"""
 import json
 import time
 
@@ -6,6 +15,8 @@ from ..llm import get_llm
 from ..tools import get_tool_definitions, get_tool_schemas, parse_and_execute_tool_calls, execute_tool_structured
 from ..utils.safe_print import safe_print
 from .definitions import SYSTEM_PROMPTS
+
+MAX_TOOL_ROUNDS = 6
 
 
 def _build_tools_prompt() -> str:
@@ -18,35 +29,15 @@ def _build_tools_prompt() -> str:
         "", "## 可用工具",
         "你可以使用以下工具来辅助完成任务。调用格式为 [TOOL_CALL: 工具名: 参数]。",
         "对于需要传入内容的工具（如创建文件），在 [TOOL_CALL: ...] 的下一行开始写内容，",
-        "内容结束后用单独一行的 [/TOOL_CALL] 标记结束。", "",
+        "内容结束后用单独一行的 [/TOOL_CALL] 标记结束。",
+        "工具结果会回传给你，你可以**连续多轮**使用工具：先收集信息，再执行操作，",
+        "拿到全部所需结果后，输出最终答复（如测试报告/总结）。", "",
     ]
     for t in tools:
         lines.append(f"- **{t['name']}**: {t['description']}")
         lines.append(f"  参数: {t['parameters']}")
         lines.append("")
     return "\n".join(lines)
-
-
-def _parse_tool_calls_from_message(tool_calls: list[dict]) -> list[dict]:
-    """执行 Function Calling 工具调用列表，返回结果。"""
-    if not tool_calls:
-        return []
-
-    results = []
-    for tc in tool_calls:
-        func_name = tc["function"]["name"]
-        try:
-            arguments = json.loads(tc["function"]["arguments"])
-        except (json.JSONDecodeError, TypeError):
-            arguments = {}
-
-        safe_print(f"\n[{func_name}] Function Calling 执行, arguments: {arguments}")
-        exec_result = execute_tool_structured(func_name, arguments)
-        preview = exec_result[:200] + ("..." if len(exec_result) > 200 else "")
-        safe_print(f"[{func_name}] 执行结果: {preview}")
-
-        results.append({"tool": func_name, "params": str(arguments), "result": exec_result})
-    return results
 
 
 def _delta_emitter(role: str):
@@ -61,8 +52,9 @@ def _delta_emitter(role: str):
     except Exception:
         return None
 
+    state = {"buf": "", "last": 0.0}
+
     def on_delta(text: str) -> None:
-        nonlocal state
         if not text:
             return
         now = time.time()
@@ -71,8 +63,6 @@ def _delta_emitter(role: str):
             bus.emit(bus.KIND_AGENT, agent=role, phase="delta", content=state["buf"])
             state["buf"] = ""
             state["last"] = now
-
-    state = {"buf": "", "last": 0.0}
 
     def flush():
         if state["buf"]:
@@ -83,11 +73,37 @@ def _delta_emitter(role: str):
     return on_delta
 
 
+def _exec_fc_tool_calls(tool_calls: list[dict]) -> list[dict]:
+    """执行一组 Function Calling 调用，返回 [{tool, params, result}]。"""
+    results = []
+    for tc in tool_calls:
+        func_name = tc["function"]["name"]
+        try:
+            arguments = json.loads(tc["function"]["arguments"])
+        except (json.JSONDecodeError, TypeError):
+            arguments = {}
+
+        safe_print(f"\n[{func_name}] Function Calling 执行, arguments: {arguments}")
+        try:
+            exec_result = execute_tool_structured(func_name, arguments)
+        except Exception as e:
+            from ..runtime.control import TaskStopped
+            if isinstance(e, TaskStopped):
+                raise
+            exec_result = f"工具执行失败: {e}"
+        preview = exec_result[:200] + ("..." if len(exec_result) > 200 else "")
+        safe_print(f"[{func_name}] 执行结果: {preview}")
+
+        results.append({"tool": func_name, "params": str(arguments), "result": exec_result})
+    return results
+
+
 def call_agent(role: str, prompt: str, messages_override: list[dict] = None) -> str:
     """
-    调用 LLM，发送角色 system prompt（含工具描述）+ 用户 prompt。
-    优先 Function Calling；API 返回 tool_calls 为空时降级到 [TOOL_CALL: ...] 文本解析。
-    若传入 messages_override，则使用自定义消息列表（用于多轮对话）。
+    调用 LLM 完成角色任务，带**多轮工具循环**：
+    每轮模型可以发起工具调用（FC 或文本协议），结果回填后继续，
+    直到模型给出不含工具调用的最终答复，或达到轮数上限。
+    返回值是全部轮次的输出与工具结果的拼接（供状态提取/落盘）。
     """
     system_prompt = SYSTEM_PROMPTS.get(role, "你是一个AI助手，请用中文回复。")
     tools_prompt = _build_tools_prompt()
@@ -97,9 +113,6 @@ def call_agent(role: str, prompt: str, messages_override: list[dict] = None) -> 
     safe_print(f"\n{'=' * 60}")
     safe_print(f"  [{role}] 正在工作中...")
     safe_print(f"{'=' * 60}")
-
-    tool_schemas = get_tool_schemas()
-    llm = get_llm()
 
     if messages_override:
         messages = list(messages_override)
@@ -111,36 +124,59 @@ def call_agent(role: str, prompt: str, messages_override: list[dict] = None) -> 
             {"role": "user", "content": prompt},
         ]
 
-    # 流式生成：片段实时推给界面（谁的气泡在长字，就是谁在干活），
-    # 返回值和 chat() 完全等价，下面的工具调用处理不受影响。
     # 产品经理不流式：它的输出是结构化 JSON（界面有专门的渲染），
     # 把原始 JSON 逐字长在气泡里只会显得很乱。
     on_delta = None if role == "产品经理" else _delta_emitter(role)
-    chat_result = llm.chat_collect(messages=messages,
-                                   tools=tool_schemas if tool_schemas else None,
-                                   on_delta=on_delta)
-    if on_delta is not None:
-        on_delta.flush()
+    tool_schemas = get_tool_schemas()
+    llm = get_llm()
 
-    result = chat_result.content or ""
+    parts: list[str] = []          # 每轮输出 + 工具结果，最后拼接返回
+    try:
+        for _ in range(MAX_TOOL_ROUNDS + 1):
+            chat_result = llm.chat_collect(
+                messages=messages,
+                tools=tool_schemas if tool_schemas else None,
+                on_delta=on_delta,
+            )
+            if on_delta is not None:
+                on_delta.flush()
+            text = chat_result.content or ""
+            parts.append(text)
 
-    # 优先级1：标准 Function Calling
-    fc_results = _parse_tool_calls_from_message(chat_result.tool_calls)
-    if fc_results:
-        result += "\n\n## 工具执行结果\n"
-        for tr in fc_results:
-            result += f"\n- **{tr['tool']}** 执行完成:\n```\n{tr['result']}\n```\n"
+            # 路径1：标准 Function Calling —— 执行后回填，继续下一轮
+            if chat_result.tool_calls:
+                messages.append({"role": "assistant", "content": text,
+                                 "tool_calls": chat_result.tool_calls})
+                fc_results = _exec_fc_tool_calls(chat_result.tool_calls)
+                for tc, tr in zip(chat_result.tool_calls, fc_results):
+                    messages.append({
+                        "role": "tool",
+                        "tool_call_id": tc.get("id", ""),
+                        "name": tr["tool"],
+                        "content": tr["result"],
+                    })
+                continue
 
-    # 优先级2：降级到文本 [TOOL_CALL: ...] 解析
-    elif "[TOOL_CALL:" in result:
-        safe_print(f"\n[{role}] 检测到文本工具调用指令，开始执行...")
-        tool_results = parse_and_execute_tool_calls(result)
-        if tool_results:
-            result += "\n\n## 工具执行结果\n"
-            for tr in tool_results:
-                result += f"\n- **{tr['tool']}** 执行完成:\n```\n{tr['result']}\n```\n"
+            # 路径2：文本协议 [TOOL_CALL: ...] —— 同样回填继续
+            if "[TOOL_CALL:" in text:
+                tool_results = parse_and_execute_tool_calls(text)
+                if tool_results:
+                    messages.append({"role": "assistant", "content": text})
+                    results_text = "\n\n".join(
+                        f"## {tr['tool']} 执行结果\n{tr['result']}" for tr in tool_results)
+                    parts.append(results_text)
+                    messages.append({"role": "user", "content":
+                                     results_text + ("\n\n工具结果已返回。请继续下一步；"
+                                                     "若工作已全部完成，请输出最终答复。")})
+                    continue
 
+            # 无工具调用 → 最终答复，结束循环
+            break
+    finally:
+        if on_delta is not None:
+            on_delta.flush()
+
+    result = "\n\n".join(p for p in parts if p)
     preview = result[:300] + ("..." if len(result) > 300 else "")
     safe_print(f"[{role}] 输出预览:\n{preview}\n")
-
     return result

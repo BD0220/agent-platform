@@ -48,7 +48,7 @@ def init_node(state: WorkflowState) -> dict:
         "task_id": task_id or "",
         "delivery_dir": delivery_dir,
         "turns": 0,
-        "max_turns": 20,
+        "max_turns": 30,   # 一轮完整协作（含测试员多轮工具循环）≈15-25 轮，20 会掐掉复测
         "completed": False,
         "status": "running",
         "messages": [],

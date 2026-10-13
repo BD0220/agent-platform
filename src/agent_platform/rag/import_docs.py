@@ -144,30 +144,37 @@ def search_knowledge(query: str, collection_name: str = "default", top_k: int = 
 
 
 def list_kb_collections() -> list[dict]:
-    """列出所有知识库 collection。"""
+    """列出所有知识库 collection（展示用户可读的原名）。"""
     from ..storage.vector_store import get_chroma_client
     client = get_chroma_client()
     if client is None:
         return []
     try:
         collections = client.list_collections()
-        return [
-            {"name": c.name.replace("kb_", ""),
-             "count": c.count()}
-            for c in collections if c.name.startswith("kb_")
-        ]
+        out = []
+        for c in collections:
+            if not c.name.startswith("kb_"):
+                continue
+            display = ""
+            try:
+                display = (c.metadata or {}).get("display_name", "")
+            except Exception:
+                display = ""
+            out.append({"name": display or c.name.replace("kb_", "", 1),
+                        "count": c.count()})
+        return out
     except Exception:
         return []
 
 
 def delete_kb_collection(name: str) -> bool:
-    """删除知识库 collection。"""
-    from ..storage.vector_store import get_chroma_client
+    """删除知识库 collection（名字走同一套净化规则）。"""
+    from ..storage.vector_store import get_chroma_client, safe_collection_name
     client = get_chroma_client()
     if client is None:
         return False
     try:
-        client.delete_collection(f"kb_{name}")
+        client.delete_collection(f"kb_{safe_collection_name(name)}")
         safe_print(f"[KB] 已删除 collection: {name}")
         return True
     except Exception as e:

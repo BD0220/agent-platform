@@ -112,52 +112,30 @@ def _m(mid, label, vendor, model, context, p_in, p_out, price_note,
 
 MODELS = [
     # ── DeepSeek ────────────────────────────────────────────────
+    # 2026-10-13 实测修正：DeepSeek API 只认 deepseek-flash / deepseek-v4-pro
+    # 两个名字（传 deepseek-chat / deepseek-reasoner / v4.x 一律 400）。
+    # 上一版注册表里的 v4.1-flash 等名字是错的，已按 API 报错信息改正。
     _m(
-        "deepseek-v4.1-flash", "DeepSeek V4.1 Flash", "deepseek",
-        "deepseek-v4.1-flash",
-        "1M", 1.0, 4.0,
-        "2026-09-10 12:00 起官网价。空闲时段：输入未命中 ¥1.0 / 缓存命中 ¥0.02 / "
-        "输出 ¥4.0（每百万 tokens）；高峰时段 ×2，即 ¥2.0 / ¥0.04 / ¥8.0。"
-        "高峰＝工作日 9:00-12:00、14:00-18:00（北京时间），其余（含周末）按空闲价。",
-        ["性价比第一梯队", "1M 上下文", "原生多模态", "工具调用稳定"],
-        "2026-09-10 刚发布的新一代 Flash：552B MoE（激活 8B/16B 的因果编解码架构），"
-        "自带原生视觉理解，官方口径是性能反超 V4 Pro 而价格下调。"
-        "KV 缓存压到 890 字节/token —— 比上一代小 4 倍、比 V1 小 400 多倍，"
-        "而 Agent 每一轮都要重发 system prompt 和全部历史消息，这块省得最狠。",
-        "闲时/高峰双价，赶在忙时跑成本直接翻倍。极深的单链推理仍不如 V4 Pro。",
-        "本项目的默认选择：Agent 循环调用量大、上下文重复度高，缓存优势最明显。",
+        "deepseek-flash", "DeepSeek Flash", "deepseek",
+        "deepseek-flash",
+        "1M", None, None,
+        "价格以官网为准（价格变动快，不写死数字）",
+        ["性价比第一梯队", "1M 上下文", "Agent 循环首选"],
+        "DeepSeek 当前的主力档位，API 报错信息里给出的两个正式模型名之一。"
+        "价格与档位以官网定价页为准。",
+        "高峰时段可能按倍率计费，跑大批量前先看一眼官网。",
+        "本项目的默认选择：Agent 循环调用量大，DeepSeek 便宜稳定。",
         "https://api-docs.deepseek.com/quick_start/pricing",
         recommend=True,
     ),
     _m(
-        "deepseek-chat", "deepseek-chat（兼容别名）", "deepseek", "deepseek-chat",
-        "1M", 1.0, 4.0,
-        "与 v4.1-flash 同价；仅为向后兼容保留的名字",
-        ["兼容旧代码", "老配置不用改"],
-        "这个老名字现在由服务端指向 **V4.1 Flash**，能力和价格都跟上面那条一致。"
-        "旧的 ``deepseek-v4-flash`` 同样仍被接受为别名。",
-        "不想改配置、或者代码里写死了 deepseek-chat 时继续用它就行。",
-        "只要别以为它还是 2026 年上半年的那个 V4 Flash 就行 —— 底层已经换代了。",
-        "https://api-docs.deepseek.com/quick_start/pricing",
-    ),
-    _m(
         "deepseek-v4-pro", "DeepSeek V4 Pro", "deepseek", "deepseek-v4-pro",
-        "1M", 3.18, 6.36,
-        "2026-07 官网价（促销档）；高峰时段 ×2",
+        "1M", None, None,
+        "价格以官网为准（价格变动快，不写死数字）",
         ["强推理", "1M 上下文", "代码"],
-        "DeepSeek 的旗舰，激活参数更多、思考更深，复杂重构和长链推理明显更稳。",
-        "比 Flash 贵约 3 倍，简单任务上用它是浪费。",
-        "当默认模型反复做不对、需要更强的规划能力时切过来救场。",
-        "https://api-docs.deepseek.com/quick_start/pricing",
-    ),
-    _m(
-        "deepseek-reasoner", "deepseek-reasoner（兼容别名）", "deepseek", "deepseek-reasoner",
-        "1M", 1.0, 4.0,
-        "与 v4.1-flash 同价；仅为向后兼容保留的名字",
-        ["兼容旧代码", "注意：不再是 R1"],
-        "目前这个名字由服务端**静默重定向到 V4 Flash**，能力与 v4-flash 完全一致。",
-        "想用原来的 R1 推理模型已经不行了 —— deepseek-r1 这条线在 2026-07 下线，调用会直接报错。",
-        "只在旧配置里出现这个名字、不想改配置时用；等价于选 v4-flash。",
+        "DeepSeek 的旗舰档，复杂重构和长链推理更稳。",
+        "比 Flash 贵，简单任务上用它是浪费。",
+        "默认模型反复做不对、需要更强规划能力时切过来救场。",
         "https://api-docs.deepseek.com/quick_start/pricing",
     ),
 

@@ -11,7 +11,7 @@ class DeepSeekProvider(OpenAICompatibleProvider):
         super().__init__(
             api_key=api_key or os.getenv("DEEPSEEK_API_KEY", ""),
             base_url=base_url or os.getenv("DEEPSEEK_BASE_URL", "https://api.deepseek.com"),
-            model=model or os.getenv("DEEPSEEK_MODEL", "deepseek-chat"),
+            model=model or os.getenv("DEEPSEEK_MODEL", "deepseek-flash"),
         )
 
     @property

@@ -7,8 +7,13 @@ import requests
 BASE = "http://127.0.0.1:8000"
 os_ignore = None
 import os
+from datetime import datetime
 os.environ["NO_PROXY"] = "127.0.0.1,localhost"
-OUT = r"D:\new agent\.workbuddy\tmp\_platform_eval_ext.json"
+_HERE = os.path.dirname(os.path.abspath(__file__))
+RESULTS_DIR = os.path.join(_HERE, "results")
+os.makedirs(RESULTS_DIR, exist_ok=True)
+OUT = os.path.join(RESULTS_DIR,
+                   f"eval_ext_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json")
 
 session = requests.Session()
 session.trust_env = False

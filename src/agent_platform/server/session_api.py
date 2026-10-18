@@ -177,6 +177,33 @@ def api_get_session(session_id: str):
     }
 
 
+@router.get("/sessions/{session_id}/trace")
+def api_get_trace(session_id: str):
+    """决策时间线（T6 可观测性）：会话事件 + LLM 调用计量。
+
+    回答"第 N 轮为什么打回/为什么慢"这类排障问题：事件流给出决策序列，
+    usage 给出每次调用的 token 与耗时（只计量，不记内容）。
+    """
+    _current_user()
+    meta = session_store.load(session_id)
+    if not meta:
+        raise HTTPException(status_code=404, detail="会话不存在")
+    events = session_store.read_events(session_id)
+    from ..runtime.usage import snapshot as usage_snapshot, summary as usage_summary
+    return {
+        "status": "success",
+        "data": {
+            "session_id": session_id,
+            "status": meta.get("status", ""),
+            "event_count": len(events),
+            "events": events,
+            "llm_usage": usage_summary(),
+            "llm_calls": usage_snapshot(50),
+            "pending": get_control().pending(session_id),
+        },
+    }
+
+
 @router.delete("/sessions/{session_id}")
 def api_delete_session(session_id: str):
     """删除会话记录。

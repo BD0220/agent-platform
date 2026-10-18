@@ -162,7 +162,19 @@ def agent_node(state: WorkflowState) -> dict:
         assistant_msg["_text_tool_calls"] = True
 
     messages.append(assistant_msg)
-    return {"messages": messages, "turns": turns + 1, "status": "thinking"}
+    # T5：执行计划显式落盘（图状态 + 存储状态双写）。
+    # 图状态给总结/回放用；存储状态给 dispatch 的"计划确认闸门"用——
+    # 那边拿不到图状态，只能读 state 文件。
+    extra = {}
+    has_sub_output = any(load_state().get(k) for k in ("功能清单", "代码", "测试报告"))
+    if turns == 0 and content.strip():
+        extra["plan"] = {"raw": content[:2000]}
+        save_state({"任务规划": {"raw": content[:2000]}})
+    elif not result.tool_calls and not has_sub_output and content.strip():
+        # 规划阶段（尚未有任何子Agent 产出）的纯文本输出都视为计划或计划修订，
+        # 这样计划被打回后主Agent 重写的版本也能进闸门，而不是永远展示旧计划
+        save_state({"任务规划": {"raw": content[:2000]}})
+    return {**extra, "messages": messages, "turns": turns + 1, "status": "thinking"}
 
 
 def tool_node(state: WorkflowState) -> dict:

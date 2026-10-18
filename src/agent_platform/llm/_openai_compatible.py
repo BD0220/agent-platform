@@ -3,6 +3,9 @@ from .base import LLMProvider, ChatResult, ChatChunk
 from .factory import _report_usage
 
 
+import time
+
+
 class OpenAICompatibleProvider(LLMProvider):
     """OpenAI SDK 兼容的 LLM Provider 基类。子类只需传 env/URL/model。"""
 
@@ -26,6 +29,7 @@ class OpenAICompatibleProvider(LLMProvider):
     def chat(self, messages: list[dict], tools: list[dict] = None,
              temperature: float = 0.7) -> ChatResult:
         kwargs = self._build_kwargs(messages, tools, temperature)
+        _t0 = time.perf_counter()
         response = self._client.chat.completions.create(**kwargs)
         msg = response.choices[0].message
 
@@ -51,6 +55,9 @@ class OpenAICompatibleProvider(LLMProvider):
         )
         if usage:
             _report_usage(self._model, usage)
+            from ..runtime.usage import record_llm_call
+            record_llm_call(self._model, usage,
+                            int((time.perf_counter() - _t0) * 1000), tag="chat")
         return result
 
     def chat_stream(self, messages: list[dict], tools: list[dict] = None,
@@ -78,6 +85,7 @@ class OpenAICompatibleProvider(LLMProvider):
         kwargs = self._build_kwargs(messages, tools, temperature)
         kwargs["stream"] = True
         kwargs["stream_options"] = {"include_usage": True}
+        _t0 = time.perf_counter()
         try:
             response = self._client.chat.completions.create(**kwargs)
         except Exception:
@@ -125,6 +133,9 @@ class OpenAICompatibleProvider(LLMProvider):
         )
         if usage:
             _report_usage(self._model, usage)
+            from ..runtime.usage import record_llm_call
+            record_llm_call(self._model, usage,
+                            int((time.perf_counter() - _t0) * 1000), tag="chat_collect")
         return result
 
 

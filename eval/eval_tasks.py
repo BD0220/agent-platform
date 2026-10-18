@@ -6,12 +6,20 @@ import json
 import os
 import sys
 import time
+from datetime import datetime
 
 import requests
 
 BASE = "http://127.0.0.1:8000"
-OUT_JSON = r"D:\new agent\.workbuddy\tmp\_platform_eval_result.json"
-OUT_TXT = r"D:\new agent\.workbuddy\tmp\_platform_eval.txt"
+_HERE = os.path.dirname(os.path.abspath(__file__))
+RESULTS_DIR = os.path.join(_HERE, "results")
+os.makedirs(RESULTS_DIR, exist_ok=True)
+_STAMP = datetime.now().strftime("%Y%m%d_%H%M%S")
+OUT_JSON = os.path.join(RESULTS_DIR, f"eval_{_STAMP}.json")
+OUT_TXT = os.path.join(RESULTS_DIR, f"eval_{_STAMP}.txt")
+sys.path.insert(0, _HERE)
+from attribution import attribute, attribution_summary, compare  # noqa: E402
+
 os.environ["NO_PROXY"] = "127.0.0.1,localhost"
 
 TASKS = [
@@ -36,6 +44,7 @@ def run_task(task, timeout_s=560):
     handoffs = 0
     final_kind = ""
     result = {}
+    error_seen = False
     t0 = time.time()
 
     while time.time() - t0 < timeout_s:
@@ -72,12 +81,13 @@ def run_task(task, timeout_s=560):
                 result = ev.get("result", {}) or {}
             elif kind == "error":
                 final_kind = "error"
+                error_seen = True
         resp.close()
         if final_kind in ("done", "error"):
             break
         time.sleep(0.5)
 
-    return {
+    row = {
         "task": task,
         "session": sid,
         "finished": final_kind == "done",
@@ -86,7 +96,27 @@ def run_task(task, timeout_s=560):
         "rounds": result.get("主Agent调度轮数", 0),
         "handoffs": handoffs,
         "elapsed_s": round(time.time() - t0, 1),
+        "error_seen": error_seen,
     }
+    row["归因"] = attribute(row)
+    return row
+
+
+def _find_previous(current_path: str) -> dict | None:
+    """找 results/ 里上一次的跑批结果（排除当前文件），用于回归对比。"""
+    try:
+        files = sorted(f for f in os.listdir(RESULTS_DIR) if f.endswith(".json"))
+    except OSError:
+        return None
+    files = [f for f in files
+             if os.path.abspath(os.path.join(RESULTS_DIR, f)) != os.path.abspath(current_path)]
+    if not files:
+        return None
+    try:
+        with open(os.path.join(RESULTS_DIR, files[-1]), encoding="utf-8") as f:
+            return json.load(f)
+    except (OSError, json.JSONDecodeError):
+        return None
 
 
 def main():
@@ -109,8 +139,15 @@ def main():
         "test_pass_rate": f"{passed}/{n}",
         "avg_rounds": round(avg_rounds, 1),
         "avg_elapsed_s": round(avg_elapsed, 1),
+        "归因统计": attribution_summary(rows),
         "rows": rows,
     }
+    # 回归对比：与上一次跑批同口径比较（通过率降=回退，轮数/耗时降=改进）
+    previous = _find_previous(OUT_JSON)
+    if previous:
+        summary["regression"] = compare(previous, summary)
+        print("REGRESSION: " + json.dumps(summary["regression"], ensure_ascii=False), flush=True)
+    print("ATTRIBUTION: " + json.dumps(summary["归因统计"], ensure_ascii=False), flush=True)
     with open(OUT_JSON, "w", encoding="utf-8") as f:
         json.dump(summary, f, ensure_ascii=False, indent=2)
     with open(OUT_TXT, "w", encoding="utf-8") as f:

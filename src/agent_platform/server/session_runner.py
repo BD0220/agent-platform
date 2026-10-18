@@ -237,11 +237,17 @@ def _emit_deliverables(session_id: str, result: dict) -> None:
     lines = [
         f"**{head}**",
         f"- 调度轮数：{turns} 轮",
+    ]
+    plan = result.get("任务规划") or {}
+    plan_text = plan.get("raw", "") if isinstance(plan, dict) else str(plan)
+    if plan_text:
+        lines.append(f"- 计划：{plan_text[:60]}{'…' if len(plan_text) > 60 else ''}")
+    lines.extend([
         f"- 测试结果：{test_state}"
         + ("" if passed else "（已达调度上限，未能在本轮内全部修复）"),
         f"- 交付物：{('、'.join(f['name'] for f in files)) if files else '（无有效产出）'}",
         f"- 位置：`{delivery_dir}`" if delivery_dir else "- 位置：默认交付目录",
-    ]
+    ])
     evidence = result.get("证据清单") or []
     if evidence:
         lines.append("- 证据链：")

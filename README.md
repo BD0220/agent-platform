@@ -78,8 +78,8 @@ agent-platform/
 │   ├── rag/  memory/         # 经验检索与沉淀
 │   └── storage/              # database.py（MySQL/SQLAlchemy）+ state.py
 ├── frontend/                 # 前端：index.html + css + js（md / chat / panels / app）
-├── docs/                     # 改动记录.md（真实 bug 复盘）、本地运行说明.md
-├── scripts/                  # 一次性脚本：seed_knowledge.py、migrate_sqlite_to_mysql.py、eval/（跑批评测）
+├── docs/                     # 改动记录.md（真实 bug 复盘）、升级清单.md、本地运行说明.md、界面截图
+├── scripts/                  # 一次性脚本与评测：seed_knowledge.py、migrate_sqlite_to_mysql.py、eval/（8 用例跑批 + 归因）
 ├── tests/                    # pytest：98 个用例（并发/沙箱/数据库/协作/契约/审查/渲染/服务冒烟）
 └── .data/                    # 运行时产物 + 缓存（会话/日志/向量库/交付物），已 gitignore
 ```

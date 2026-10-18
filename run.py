@@ -15,7 +15,7 @@ import time
 import webbrowser
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
-SRC = os.path.join(ROOT, "src")
+SRC = os.path.join(ROOT, "backend")
 
 HOST = os.getenv("ABUNDANCE_HOST", "127.0.0.1")
 PORT = int(os.getenv("ABUNDANCE_PORT", "8000"))
@@ -53,7 +53,7 @@ def _load_env_file():
 
 
 def _setup_paths():
-    for d in ("data", "deliveries", "data/sessions"):
+    for d in (".data", ".data/sessions", "deliveries"):
         os.makedirs(os.path.join(ROOT, d), exist_ok=True)
     if SRC not in sys.path:
         sys.path.insert(0, SRC)
@@ -96,7 +96,7 @@ def main():
     url = f"http://{HOST}:{PORT}"
     print("=" * 52)
     print("abundance  starting ...")
-    print(f"web  {url}")
+    print(f"frontend {url}")
     print("Ctrl+C to stop")
     print("=" * 52)
 

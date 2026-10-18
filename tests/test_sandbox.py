@@ -1,23 +1,27 @@
 """代码执行沙箱测试 —— 验证资源限制和安全隔离。"""
 import os
+import shutil
 import sys
 import tempfile
 import time
-import shutil
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "backend"))
 
 _TMP_DIR = tempfile.mkdtemp(prefix="sandbox_test_")
 os.environ["AGENT_DATA_DIR"] = _TMP_DIR
 os.environ["AGENT_DELIVERIES_DIR"] = os.path.join(_TMP_DIR, "deliveries")
 os.makedirs(os.environ["AGENT_DELIVERIES_DIR"], exist_ok=True)
 
-from agent_platform.storage.state import (  # noqa: E402
-    set_current_task, save_state, get_current_task_dir, cleanup_state,
-)
 from agent_platform.storage.database import init_db  # noqa: E402
+from agent_platform.storage.state import (  # noqa: E402
+    cleanup_state,
+    get_current_task_dir,
+    save_state,
+    set_current_task,
+)
 from agent_platform.tools.builtins.python_tools import (  # noqa: E402
-    _tool_run_python_file, _build_sanitized_env,
+    _build_sanitized_env,
+    _tool_run_python_file,
 )
 
 init_db()

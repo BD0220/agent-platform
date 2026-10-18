@@ -31,7 +31,7 @@ MYSQL_DATABASE=abundance
 ## 它是怎么工作的
 
 ```
-浏览器（web/，原生 JS + EventSource）
+浏览器（frontend/，原生 JS + EventSource）
    │  SSE 实时收事件流
    ▼
 FastAPI :8000 ── api.py（任务/知识库/统计）
@@ -64,18 +64,19 @@ FastAPI :8000 ── api.py（任务/知识库/统计）
 
 ```
 agent-platform/
-├── run.py / start.bat        # 启动入口（单端口 8000）
-├── web/                      # 前端：index.html + css + js（api/chat/panels/app）
-├── src/agent_platform/
-│   ├── server/               # api.py + session_api + model_api + file_api + session_runner
-│   ├── runtime/              # bus.py 事件总线 / control.py 闸门 / session_store.py 会话持久化 / workspace.py
+├── run.py / start.bat        # 启动入口（单端口 8000，就绪后自动开浏览器）
+├── backend/agent_platform/   # 后端（Python 包，import 名仍是 agent_platform）
+│   ├── server/               # api.py + session_api + model_api + session_runner
+│   ├── runtime/              # bus.py 事件总线 / control.py 闸门 / session_store.py / tool_events.py / workspace.py
 │   ├── agents/  workflow/  tools/   # Agent 内核（LangGraph 编排、工具注册、沙箱）
 │   ├── llm/                  # 多 Provider 工厂 + 模型注册表
 │   ├── rag/  memory/         # 经验检索与沉淀
 │   └── storage/              # database.py（MySQL/SQLAlchemy）+ state.py
-├── scripts/migrate_sqlite_to_mysql.py   # 旧 SQLite 数据一次性迁移（幂等）
-├── tests/                    # pytest：并发/沙箱/数据库/协作层，39 个用例
-└── docs/改动记录.md           # 六轮真实 bug 的完整复盘（面试素材）
+├── frontend/                 # 前端：index.html + css + js（md / chat / panels / app）
+├── docs/                     # 改动记录.md（真实 bug 复盘）、本地运行说明.md
+├── scripts/                  # 一次性脚本：seed_knowledge.py、migrate_sqlite_to_mysql.py、eval/（跑批评测）
+├── tests/                    # pytest：89 个用例（并发/沙箱/数据库/协作/渲染/服务冒烟）
+└── .data/                    # 运行时产物 + 缓存（会话/日志/向量库/交付物），已 gitignore
 ```
 
 ## API 速览（`/docs` 有交互式文档）
@@ -93,5 +94,5 @@ agent-platform/
 ## 测试
 
 ```bash
-.venv\Scripts\python.exe -m pytest tests -q    # 39 个用例
+.venv\Scripts\python.exe -m pytest tests -q    # 89 个用例
 ```

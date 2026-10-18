@@ -6,13 +6,12 @@
 幂等：按主键 INSERT ... ON DUPLICATE KEY UPDATE，重复跑不会产生重复数据。
 跑完后旧 platform.db 保留在原地不动，确认无误后可自行删除。
 """
-import json
 import os
 import sqlite3
 import sys
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-sys.path.insert(0, os.path.join(ROOT, "src"))
+sys.path.insert(0, os.path.join(ROOT, "backend"))
 os.chdir(ROOT)
 
 # .env 里的 MYSQL_* 先装进环境变量
@@ -20,7 +19,7 @@ def load_env_file(root: str):
     path = os.path.join(root, ".env")
     if not os.path.isfile(path):
         return
-    with open(path, "r", encoding="utf-8-sig") as f:
+    with open(path, encoding="utf-8-sig") as f:
         for line in f:
             line = line.strip()
             if not line or line.startswith("#") or "=" not in line:
@@ -34,10 +33,14 @@ def load_env_file(root: str):
 
 load_env_file(ROOT)
 
-from sqlalchemy import select, func  # noqa: E402
 from agent_platform.storage.database import (  # noqa: E402
-    Task, Memory, _get_engine, init_db, _upsert,
+    Memory,
+    Task,
+    _get_engine,
+    _upsert,
+    init_db,
 )
+from sqlalchemy import func, select  # noqa: E402
 
 SQLITE_FILE = os.path.join(ROOT, "data", "platform.db")
 
@@ -46,7 +49,7 @@ def rows(conn, table):
     try:
         cur = conn.execute(f"SELECT * FROM {table}")
         cols = [d[0] for d in cur.description]
-        return [dict(zip(cols, r)) for r in cur.fetchall()]
+        return [dict(zip(cols, r, strict=False)) for r in cur.fetchall()]
     except sqlite3.OperationalError as e:
         print(f"[migrate] skip {table}: {e}")
         return []

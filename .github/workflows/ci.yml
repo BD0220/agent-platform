@@ -8,9 +8,14 @@ on:
 
 jobs:
   test:
-    runs-on: ubuntu-latest
+    # 产品形态是「Windows 单机应用」（.bat 启动、原生文件夹选择框、Windows 路径）。
+    # 只在 ubuntu 上跑绿是假绿：双击启动的编码问题、路径处理问题都只在
+    # windows 上才暴露得出来（2026-10 那个 .bat 乱码 bug 就是这么漏掉的）。
+    runs-on: ${{ matrix.os }}
     strategy:
+      fail-fast: false
       matrix:
+        os: [ubuntu-latest, windows-latest]
         python-version: ["3.11", "3.12"]
 
     steps:
@@ -28,7 +33,7 @@ jobs:
           pip install -e ".[dev,langgraph]"
 
       - name: Lint with ruff
-        run: ruff check src/ tests/
+        run: ruff check backend/ tests/ scripts/
 
       - name: Run tests
         env:

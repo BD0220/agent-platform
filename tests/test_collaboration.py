@@ -16,7 +16,7 @@ _TMP = tempfile.mkdtemp(prefix="agent_collab_test_")
 os.environ["AGENT_DATA_DIR"] = _TMP
 os.environ["AGENT_DELIVERIES_DIR"] = os.path.join(_TMP, "deliveries")
 
-sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "src"))
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "backend"))
 
 from agent_platform.runtime import bus, session_store, workspace  # noqa: E402
 from agent_platform.runtime.bus import KIND_AGENT, KIND_HANDOFF  # noqa: E402

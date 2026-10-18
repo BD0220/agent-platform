@@ -26,33 +26,11 @@ Thumbs.db
 .env.local
 .env.production
 
-# Runtime data
-data/platform.db
-data/platform.db-shm
-data/platform.db-wal
-data/memory.json
-data/tokens.json
-data/last_result.json
-data/project_state.json
-data/state_*.json
-data/.session_*.json
-data/logs/
-data/chroma_db/
-data/.gitkeep
-!data/.gitkeep
+# 运行时产物（数据库 / 日志 / 向量库 / 会话 / 缓存），含 API Key 与本地路径
+.data/
 
-# 运行期设置：含用户填入的 API Key，绝不能提交
-data/settings.json
-# 用户注册的本地工作空间目录（含本机绝对路径）
-data/workspaces.json
-# 会话记录（含对话内容与工作空间路径）
-data/sessions/
-
-# Deliveries (generated per task)
+# 交付物（每个任务的代码/文档产出，体积大且因任务而异，不入库）
 deliveries/
-
-# Keep data directory structure
-!data/.gitkeep
 
 # Jupyter
 .ipynb_checkpoints/

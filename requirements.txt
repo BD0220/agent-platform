@@ -1,23 +1,14 @@
-# Core LLM
-openai>=1.12.0
-anthropic>=0.30.0
-
-# Web / API
-fastapi>=0.110.0
-uvicorn[standard]>=0.27.0
-pydantic>=2.6.0
-
-# Database
-sqlalchemy>=2.0.0
-pymysql>=1.1.0
-
-# Storage
-chromadb>=0.5.0
-
-# Workflow engine
-langgraph>=0.2.0
-langchain-core>=0.3.0
-
-# Utils
-requests>=2.31.0
-jsonschema>=4.0.0
+# 已废弃（2026-10-19）：依赖以 pyproject.toml 为唯一来源。
+#
+# 原因：这份文件和 pyproject.toml 是两份独立的依赖定义，早就漂了 ——
+# langgraph 在 pyproject.toml 里属于可选 extra（.[dev,langgraph]），这里却写成必需；
+# redis 两边都没写，但 docker-compose 还开着 redis 容器。
+# 漂移的后果不是报错，而是"照 requirements 装完，工作流引擎静默降级成线性模式"——
+# graph.py 对 langgraph 是 try/except ImportError，缺了不报错，只是不生效。
+#
+# 正确做法：
+#   pip install -e ".[dev,langgraph]"     # 开发（含测试与工作流引擎）
+#   pip install -e ".[langgraph]"         # 只运行
+#
+# 需要给 CI / 镜像锁死具体版本时，用 `pip freeze` 或 `uv export` 生成一份锁文件，
+# 不要再手工维护第二份依赖清单。

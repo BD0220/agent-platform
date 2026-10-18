@@ -7,10 +7,14 @@
 import os
 import sys
 
-sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "src"))
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "backend"))
 
 from agent_platform.agents.contract import (  # noqa: E402
-    AgentResult, Evidence, build_result, parse_envelope, validate_result,
+    AgentResult,
+    Evidence,
+    build_result,
+    parse_envelope,
+    validate_result,
 )
 
 _LONG = "需求内容详述。" * 20  # 140+ 字，过 min_len

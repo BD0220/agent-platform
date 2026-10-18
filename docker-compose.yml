@@ -14,17 +14,11 @@ services:
       - OPENAI_MODEL=${OPENAI_MODEL:-gpt-4o}
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
       - ANTHROPIC_MODEL=${ANTHROPIC_MODEL:-claude-sonnet-4-6}
-      - REDIS_HOST=redis
-      - REDIS_PORT=6379
-      - REDIS_DB=0
-      - AGENT_DATA_DIR=/app/data
+      - AGENT_DATA_DIR=/app/.data
       - AGENT_DELIVERIES_DIR=/app/deliveries
     volumes:
-      - api_data:/app/data
+      - api_data:/app/.data
       - api_deliveries:/app/deliveries
-    depends_on:
-      redis:
-        condition: service_healthy
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/docs"]
@@ -32,39 +26,15 @@ services:
       timeout: 5s
       retries: 3
 
-  ui:
-    build: .
-    container_name: agent-platform-ui
-    ports:
-      - "7860:7860"
-    environment:
-      - LLM_PROVIDER=${LLM_PROVIDER:-deepseek}
-      - DEEPSEEK_API_KEY=${DEEPSEEK_API_KEY}
-      - AGENT_DATA_DIR=/app/data
-      - AGENT_DELIVERIES_DIR=/app/deliveries
-    command: python -m agent_platform.server.ui
-    depends_on:
-      - api
-    volumes:
-      - api_data:/app/data
-      - api_deliveries:/app/deliveries
-    restart: unless-stopped
-
-  redis:
-    image: redis:7-alpine
-    container_name: agent-platform-redis
-    ports:
-      - "6379:6379"
-    volumes:
-      - redis_data:/data
-    restart: unless-stopped
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 10s
-      timeout: 3s
-      retries: 5
+# 说明（2026-10-19 清理）：
+#   - 删掉了原来的 `ui` 服务：它执行 `python -m agent_platform.server.ui`，
+#     而那个模块早已随 Gradio 界面一起删除，`docker compose up` 会直接崩。
+#     现在界面就是 frontend/ 里的原生前端，由 api 进程在 8000 端口一起托管。
+#   - 删掉了 redis 服务：代码里只有 memory/short_term.py 用 try/except 做可选
+#     降级，而 redis 客户端并不在依赖里，容器起来也永远连不上、白占资源。
+#     真要启用 Redis：把 `redis` 加进 pyproject 的 dependencies，再把服务加回来。
+#   - 注意：这是**单机应用**（默认绑 127.0.0.1），对外暴露前请自行加认证。
 
 volumes:
   api_data:
   api_deliveries:
-  redis_data:

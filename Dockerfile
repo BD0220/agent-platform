@@ -12,25 +12,29 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 # 先复制依赖文件，利用 Docker 层缓存
-COPY pyproject.toml requirements.txt ./
-COPY src/ src/
+COPY pyproject.toml ./
+# frontend/ 是前端本体（原生 HTML/JS，由 api 进程直接托管）。
+# 漏掉这一层的后果很隐蔽：_mount_web() 找不到 index.html 就静默跳过，
+# 容器里只剩 /docs 能用，看起来"服务起来了"其实没有界面。
+COPY backend/ backend/
+COPY frontend/ frontend/
 
 # 安装核心依赖 + langgraph（工作流引擎）
 RUN pip install --no-cache-dir --upgrade pip \
     && pip install --no-cache-dir -e ".[langgraph]"
 
 # 创建运行时目录并赋权
-RUN mkdir -p /app/data /app/deliveries && chown -R appuser:appuser /app
+RUN mkdir -p /app/.data /app/deliveries && chown -R appuser:appuser /app
 
 # 运行时环境变量
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
-    AGENT_DATA_DIR=/app/data \
+    AGENT_DATA_DIR=/app/.data \
     AGENT_DELIVERIES_DIR=/app/deliveries
 
 USER appuser
 
-EXPOSE 8000 7860
+EXPOSE 8000
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
     CMD curl -f http://localhost:8000/docs || exit 1

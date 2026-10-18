@@ -4,9 +4,9 @@
 4 个线程并发时会互相覆盖状态。新实现基于 ContextVar，每个线程独立。
 """
 import concurrent.futures
-import sys
 import os
 import shutil
+import sys
 import tempfile
 import threading
 import time
@@ -17,13 +17,17 @@ os.environ["AGENT_DATA_DIR"] = _TMP_DIR
 os.environ["AGENT_DELIVERIES_DIR"] = os.path.join(_TMP_DIR, "deliveries")
 os.makedirs(os.environ["AGENT_DELIVERIES_DIR"], exist_ok=True)
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "backend"))
 
-from agent_platform.storage.state import (  # noqa: E402
-    set_current_task, save_state, load_state, cleanup_state,
-    get_current_task_id, get_current_task_dir,
-)
 from agent_platform.storage.database import init_db  # noqa: E402
+from agent_platform.storage.state import (  # noqa: E402
+    cleanup_state,
+    get_current_task_dir,
+    get_current_task_id,
+    load_state,
+    save_state,
+    set_current_task,
+)
 
 init_db()
 

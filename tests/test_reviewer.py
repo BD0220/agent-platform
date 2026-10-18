@@ -2,7 +2,7 @@
 import os
 import sys
 
-sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "src"))
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "backend"))
 
 from agent_platform.agents.context import assemble_messages  # noqa: E402
 from agent_platform.agents.reviewer import _parse_verdict, mechanical_check  # noqa: E402
@@ -14,13 +14,13 @@ def test_verdict_parse_pass():
     print("✓ test_verdict_parse_pass")
 
 
-def test_verdict_parse_unparsable_rejects():
-    """审查输出无法解析时按不过处理——审查方失灵时不许放行。"""
+def test_verdict_parse_unparsable_passes():
+    """审查输出无法解析时放行（审查方失灵不许把用户卡在反复打回里）。"""
     v = _parse_verdict("我觉得挺好的，没有 JSON")
-    assert v["verdict"] == "reject"
+    assert v["verdict"] == "pass"
     v2 = _parse_verdict('{"verdict": "pass", broken')
-    assert v2["verdict"] == "reject"
-    print("✓ test_verdict_parse_unparsable_rejects")
+    assert v2["verdict"] == "pass"
+    print("✓ test_verdict_parse_unparsable_passes")
 
 
 def test_verdict_parse_missing_verdict_field():
@@ -66,6 +66,17 @@ def test_mechanical_check_no_state_passes():
     problems = mechanical_check()
     assert problems == []
     print("✓ test_mechanical_check_no_state_passes")
+
+
+def test_simple_task_skips_review():
+    """简单任务直接放行，不进 LLM 审查（2026-10-18："写个 hello 页面被打回两次"）。"""
+    from agent_platform.workflow.nodes import review_node
+
+    os.environ.pop("AGENT_REVIEW", None)
+    out = review_node({"user_request": "写个前端页面就写个hello", "review_count": 0})
+    assert out["review_verdict"] == "pass"
+    assert out.get("review_skipped") is True
+    print("✓ test_simple_task_skips_review")
 
 
 if __name__ == "__main__":

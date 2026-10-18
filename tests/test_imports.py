@@ -3,7 +3,7 @@ import pytest
 
 
 def test_utils_import():
-    from agent_platform.utils import safe_print, clean_markdown, html_escape, safe_path
+    from agent_platform.utils import clean_markdown, html_escape, safe_path, safe_print
     assert callable(safe_print)
     assert callable(clean_markdown)
     assert callable(html_escape)
@@ -12,8 +12,8 @@ def test_utils_import():
 
 def test_storage_import():
     from agent_platform.storage import get_chroma_collection, get_or_create_kb_collection
-    from agent_platform.storage.database import init_db, db_count_memories
-    from agent_platform.storage.state import save_state, load_state, extract_task_name
+    from agent_platform.storage.database import db_count_memories, init_db
+    from agent_platform.storage.state import extract_task_name, load_state, save_state
     assert callable(init_db)
     assert callable(save_state)
     assert callable(load_state)
@@ -21,7 +21,7 @@ def test_storage_import():
 
 
 def test_llm_import():
-    from agent_platform.llm import get_llm, on_usage, ChatResult, LLMProvider
+    from agent_platform.llm import ChatResult, LLMProvider, get_llm, on_usage
     provider = get_llm()
     assert provider is not None
     assert hasattr(provider, "chat")
@@ -30,8 +30,13 @@ def test_llm_import():
 
 def test_tools_import():
     from agent_platform.tools import (
-        ToolDefinition, register_tool, get_tool_definitions, get_tool_names,
-        get_tool_schemas, execute_tool, parse_and_execute_tool_calls,
+        ToolDefinition,
+        execute_tool,
+        get_tool_definitions,
+        get_tool_names,
+        get_tool_schemas,
+        parse_and_execute_tool_calls,
+        register_tool,
     )
     names = get_tool_names()
     assert "list_files" in names
@@ -46,9 +51,15 @@ def test_tools_import():
 
 def test_memory_import():
     from agent_platform.memory import (
-        save_context, load_context, delete_context,
-        search_memory, search_memories,
-        extract_experience, auto_extract_and_save, classify_task, save_memory,
+        auto_extract_and_save,
+        classify_task,
+        delete_context,
+        extract_experience,
+        load_context,
+        save_context,
+        save_memory,
+        search_memories,
+        search_memory,
     )
     assert callable(save_context)
     assert callable(load_context)
@@ -60,9 +71,16 @@ def test_memory_import():
 
 def test_agents_import():
     from agent_platform.agents import (
-        SYSTEM_PROMPTS, AGENT_META, call_agent, extract_code,
-        dispatch_sub_agent, master_agent_loop,
-        product_manager_work, programmer_work, tester_work, programmer_fix_work,
+        AGENT_META,
+        SYSTEM_PROMPTS,
+        call_agent,
+        dispatch_sub_agent,
+        extract_code,
+        master_agent_loop,
+        product_manager_work,
+        programmer_fix_work,
+        programmer_work,
+        tester_work,
     )
     assert len(SYSTEM_PROMPTS) >= 4
     assert len(AGENT_META) == 3
@@ -74,8 +92,12 @@ def test_agents_import():
 
 def test_rag_import():
     from agent_platform.rag import (
-        advanced_search, format_memories_for_context,
-        recursive_chunk, import_file, import_text, search_knowledge,
+        advanced_search,
+        format_memories_for_context,
+        import_file,
+        import_text,
+        recursive_chunk,
+        search_knowledge,
     )
     assert callable(advanced_search)
     assert callable(recursive_chunk)
@@ -86,8 +108,13 @@ def test_rag_import():
 def test_workflow_import():
     from agent_platform.workflow import WorkflowState, build_workflow, run_workflow
     from agent_platform.workflow.nodes import (
-        init_node, retrieve_node, agent_node, tool_node, conclusion_node,
-        route_after_agent, route_after_tools,
+        agent_node,
+        conclusion_node,
+        init_node,
+        retrieve_node,
+        route_after_agent,
+        route_after_tools,
+        tool_node,
     )
     assert callable(run_workflow)
     assert callable(init_node)
@@ -117,7 +144,7 @@ def test_server_import():
 
 
 def test_main_import():
-    from agent_platform.main import run_task, main
+    from agent_platform.main import main, run_task
     assert callable(run_task)
     assert callable(main)
 

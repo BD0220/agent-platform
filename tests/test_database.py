@@ -1,16 +1,19 @@
 """数据库层测试 —— 验证幂等初始化、CRUD 和线程安全。"""
 import os
+import shutil
 import sys
 import tempfile
-import shutil
 import threading
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "backend"))
 
 _TMP = tempfile.mkdtemp(prefix="db_test_")
 os.environ["AGENT_DATA_DIR"] = _TMP
 os.environ["AGENT_DELIVERIES_DIR"] = os.path.join(_TMP, "del")
-# 测试必须跑在临时 SQLite 上，不能碰真实 MySQL：显式清掉 MYSQL_* 配置
+# 测试必须跑在临时 SQLite 上，不能碰真实 MySQL：先禁掉 .env 自动加载，
+# 再清掉 MYSQL_* —— 否则 agent_platform 一被 import 就会把 .env 里的
+# MySQL 配置读回来，测试直接写进生产库。
+os.environ["AGENT_DOTENV_DISABLE"] = "1"
 for _k in ("MYSQL_USER", "MYSQL_PASSWORD", "MYSQL_HOST", "MYSQL_PORT", "MYSQL_DATABASE"):
     os.environ.pop(_k, None)
 
@@ -42,7 +45,7 @@ def test_init_idempotent():
 
 
 def test_task_crud():
-    task_id = "test-task-001"
+    task_id = f"test-task-001-{os.getpid()}"
     db.db_create_task(task_id, "帮我写一个函数", "写函数", "testuser")
     task = db.db_get_task(task_id)
     assert task is not None

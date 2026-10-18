@@ -66,9 +66,14 @@ def format_memories_for_context(memories: list[dict]) -> str:
         return ""
     lines = ["", "## 历史经验参考", "以下是从历史任务中检索出的相关经验：", ""]
     for i, mem in enumerate(memories, 1):
+        src = f"[来源: 记忆#{mem.get('id', '?')}"
+        if mem.get("created_at"):
+            src += f" · 沉淀于 {mem['created_at']}"
+        src += "]"
         lines.append(
             f"### 经验 {i}: {mem.get('one_line_summary', mem.get('task_description', '')[:80])}"
         )
+        lines.append(src)
         lines.append(f"- **任务类型**: {', '.join(mem.get('tags', [mem.get('task_type', '')]))}")
         lines.append(f"- **质量评分**: {mem.get('quality_score', '?')}/10")
         lines.append(f"- **原始任务**: {mem.get('task_description', '')[:150]}")

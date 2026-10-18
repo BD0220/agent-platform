@@ -132,6 +132,13 @@ def agent_node(state: WorkflowState) -> dict:
     tool_schemas = get_tool_schemas()
     llm = get_llm()
 
+    # T3：超预算时压缩早期轮次（证据类消息不压），治 max_turns 硬截断失忆
+    from ..agents.context import assemble_messages
+    messages, _ctx_stats = assemble_messages(messages)
+    if _ctx_stats.get("compressed"):
+        safe_print(f"[上下文] 超预算压缩: {_ctx_stats['before']} → {_ctx_stats['after']} 字"
+                   f"（折叠 {_ctx_stats['collapsed']} 条早期轮次）")
+
     try:
         result = llm.chat(messages=messages, tools=tool_schemas if tool_schemas else None)
     except Exception as e:
@@ -236,17 +243,75 @@ def _max_turns_reached(state: WorkflowState) -> bool:
 
 
 def route_after_agent(state: WorkflowState) -> str:
-    """agent_node 之后的路由：有工具调用 → tool_node，否则 → conclusion。"""
+    """agent_node 之后的路由：有工具调用 → tool_node；准备收尾 → review（独立审查）；
+    轮数耗尽 → 直接 conclusion。"""
     if _max_turns_reached(state):
         safe_print(f"[工作流] 达到最大轮数 {state.get('max_turns')}，强制收尾")
         return "conclusion"
     if _has_tool_calls(state):
         return "tools"
-    return "conclusion"
+    return "review"
 
 
 def route_after_tools(state: WorkflowState) -> str:
     """tool_node 之后的路由：回到 agent_node 继续思考。"""
+    if _max_turns_reached(state):
+        return "conclusion"
+    return "agent"
+
+
+def review_node(state: WorkflowState) -> dict:
+    """独立审查节点（T2）：主 Agent 宣布完成前，先过独立验收。
+
+    与主 Agent 自审的区别：审查员只看交付物和 T1 契约记录，不看对话历史
+    （独立上下文）；机械契约不过直接打回（零成本）；LLM 审查查需求覆盖度。
+    打回意见作为 user 消息回填，主 Agent 据此退回对应子 Agent 重做。
+    打回满 2 次仍不过 → 放行去 conclusion 如实收尾，不无限循环（LLM 成本可控）。
+    """
+    from ..agents.reviewer import review_task
+    from ..runtime import bus
+
+    review_count = state.get("review_count", 0) + 1
+    safe_print(f"\n[审查员] 第 {review_count} 次独立审查...")
+
+    result = review_task()
+    verdict = result.get("verdict", "reject")
+
+    if verdict == "pass":
+        bus.emit(bus.KIND_AGENT, agent="审查员", phase="done",
+                 content=f"独立审查通过：{result.get('summary', '符合验收标准')}",
+                 status="审查通过")
+        return {"review_verdict": "pass", "review_count": review_count}
+
+    findings = result.get("findings") or []
+    problems = result.get("problems") or []
+    lines = ["【独立审查员打回，请按意见退回对应角色重做，不要自行修改结论】"]
+    for f in findings:
+        line = f"- {f.get('type', '问题')}: {f.get('detail', '')}"
+        if f.get("evidence"):
+            line += f"（依据: {f['evidence']}）"
+        lines.append(line)
+    if problems:
+        lines.append("【机械契约问题】")
+        lines.extend(f"- {p}" for p in problems)
+    feedback = "\n".join(lines)
+
+    bus.emit(bus.KIND_AGENT, agent="审查员", phase="done",
+             content=feedback, status="审查打回")
+    messages = list(state.get("messages", []))
+    messages.append({"role": "user", "content": feedback})
+    return {"review_verdict": "reject", "review_count": review_count,
+            "review_feedback": feedback, "messages": messages}
+
+
+def route_after_review(state: WorkflowState) -> str:
+    """review_node 之后：通过 → conclusion；打回未满 2 次 → agent 重做；
+    打回满 2 次或轮数耗尽 → conclusion（如实收尾，不无限循环）。"""
+    if state.get("review_verdict") == "pass":
+        return "conclusion"
+    if state.get("review_count", 0) >= 2:
+        safe_print("[审查员] 已打回 2 次仍不过 → 如实收尾，不无限重做")
+        return "conclusion"
     if _max_turns_reached(state):
         return "conclusion"
     return "agent"
@@ -358,6 +423,22 @@ def conclusion_node(state: WorkflowState) -> dict:
     test_passed = full_state.get("测试状态", "") == "通过"
     task_plan = full_state.get("任务规划", {})
 
+    # 证据清单（T4）：最终总结的每条结论都能指回具体证据
+    evidence_items: list[str] = []
+    tester_rec = full_state.get("契约_测试员") or {}
+    for e in tester_rec.get("evidence", []):
+        evidence_items.append(
+            f"测试运行: {e.get('type', '?')}={e.get('ref', '?')}"
+            f"（{str(e.get('detail', ''))[:80]}）")
+    if code:
+        evidence_items.append(f"代码交付物: 代码.py（{len(str(code))} 字）")
+    if requirements:
+        evidence_items.append(f"需求文档: 需求分析.md（{len(str(requirements))} 字）")
+    if test_report:
+        evidence_items.append(f"测试报告: 测试报告.md（{len(str(test_report))} 字）")
+    evidence_items.append(f"最终判定: 测试状态={full_state.get('测试状态', '未知')}，"
+                          f"调度轮数={turns}")
+
     log_task_complete(state.get("task_name", ""), turns, True, 0)
 
     safe_print(f"\n[工作流] 任务完成 (共 {turns} 轮)")
@@ -369,4 +450,5 @@ def conclusion_node(state: WorkflowState) -> dict:
         "test_report": test_report,
         "test_passed": test_passed,
         "plan": task_plan,
+        "evidence": evidence_items,
     }

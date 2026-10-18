@@ -242,6 +242,13 @@ def _emit_deliverables(session_id: str, result: dict) -> None:
         f"- 交付物：{('、'.join(f['name'] for f in files)) if files else '（无有效产出）'}",
         f"- 位置：`{delivery_dir}`" if delivery_dir else "- 位置：默认交付目录",
     ]
+    evidence = result.get("证据清单") or []
+    if evidence:
+        lines.append("- 证据链：")
+        lines.extend(f"  - {e}" for e in evidence[:6])
+    reviews = result.get("审查次数", 0)
+    if reviews:
+        lines.append(f"- 独立审查：{reviews} 次")
     if not passed:
         lines.append("\n可以在对话框里继续提修改要求（例如\"把 X 问题修掉\"），"
                      "主Agent 会安排程序员修复后重新测试。")

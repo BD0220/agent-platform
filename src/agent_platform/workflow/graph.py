@@ -7,7 +7,7 @@ from ..utils.safe_print import safe_print
 from .state import WorkflowState
 from .nodes import (
     init_node, retrieve_node, agent_node, tool_node, conclusion_node,
-    route_after_agent, route_after_tools,
+    route_after_agent, route_after_tools, route_after_review, review_node,
 )
 
 
@@ -26,6 +26,7 @@ def build_workflow():
     builder.add_node("retrieve", retrieve_node)
     builder.add_node("agent", agent_node)
     builder.add_node("tools", tool_node)
+    builder.add_node("review", review_node)
     builder.add_node("conclusion", conclusion_node)
 
     # 入口
@@ -35,9 +36,10 @@ def build_workflow():
     builder.add_edge("init", "retrieve")
     builder.add_edge("retrieve", "agent")
 
-    # agent → tools (有工具调用) 或 conclusion (无工具调用/达到上限)
+    # agent → tools (有工具调用) / review (准备收尾，先过独立审查) / conclusion (轮数耗尽)
     builder.add_conditional_edges("agent", route_after_agent, {
         "tools": "tools",
+        "review": "review",
         "conclusion": "conclusion",
     })
 
@@ -45,6 +47,12 @@ def build_workflow():
     builder.add_conditional_edges("tools", route_after_tools, {
         "agent": "agent",
         "conclusion": "conclusion",
+    })
+
+    # review → conclusion (通过/打回满次数) 或 agent (打回重做，带审查意见)
+    builder.add_conditional_edges("review", route_after_review, {
+        "conclusion": "conclusion",
+        "agent": "agent",
     })
 
     # conclusion → END
@@ -128,6 +136,8 @@ def _build_result(user_request: str, state: dict) -> dict:
         "测试报告": full_state.get("测试报告", state.get("test_report", "")),
         "测试状态": test_state,
         "任务规划": full_state.get("任务规划", state.get("plan", {})),
+        "证据清单": state.get("evidence", []),
+        "审查次数": state.get("review_count", 0),
         "交付目录": state.get("delivery_dir", ""),
     }
 

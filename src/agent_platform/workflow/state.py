@@ -23,3 +23,11 @@ class WorkflowState(TypedDict, total=False):
     test_report: str
     test_passed: bool
     plan: dict
+
+    # ── 独立审查（T2）──
+    review_verdict: str      # pass / reject
+    review_count: int        # 已审查次数（打回满 2 次仍不过 → 如实收尾，不无限循环）
+    review_feedback: str     # 最近一次打回意见（回填给主 Agent）
+
+    # ── 证据清单（T4）：最终总结的每条结论都能指回具体证据 ──
+    evidence: list

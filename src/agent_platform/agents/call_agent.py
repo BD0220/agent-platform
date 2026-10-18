@@ -133,6 +133,13 @@ def call_agent(role: str, prompt: str, messages_override: list[dict] = None) -> 
     parts: list[str] = []          # 每轮输出 + 工具结果，最后拼接返回
     try:
         for _ in range(MAX_TOOL_ROUNDS + 1):
+            # T3：超预算时压缩早期轮次（子 Agent 循环短，通常不触发；
+            # 程序员修复轮会带上一版代码+测试报告，很容易超）
+            from .context import assemble_messages
+            messages, _ctx_stats = assemble_messages(messages)
+            if _ctx_stats.get("compressed"):
+                safe_print(f"[上下文] 超预算压缩: {_ctx_stats['before']} → "
+                           f"{_ctx_stats['after']} 字（折叠 {_ctx_stats['collapsed']} 条）")
             chat_result = llm.chat_collect(
                 messages=messages,
                 tools=tool_schemas if tool_schemas else None,

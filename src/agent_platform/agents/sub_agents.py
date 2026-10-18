@@ -5,6 +5,7 @@ from ..storage.state import save_state, load_state
 from ..memory.short_term import save_context, load_context
 from ..utils.safe_print import safe_print
 from .call_agent import call_agent
+from .contract import ENVELOPE_INSTRUCTION, build_result, parse_envelope, validate_result
 from .extractor import extract_code
 
 
@@ -32,13 +33,24 @@ def product_manager_work(user_request: str = None):
             f"请分析以下用户需求，输出详细的功能清单：\n\n{user_request}\n\n"
             "输出格式要求：使用 Markdown（## 需求概述、## 功能清单 两节，"
             "功能用列表逐条给出，每条含验收标准）。不要输出 JSON。"
+            + ENVELOPE_INSTRUCTION
         )
         result = call_agent("产品经理", prompt)
+        envelope = parse_envelope(result, "产品经理")
+        problems = validate_result(envelope, "产品经理", {"功能清单": result})
+        if problems:
+            safe_print(f"[产品经理] 契约校验未过: {problems}")
     else:
         result = _format_requirements_as_markdown(structured)
+        envelope = build_result(
+            "产品经理", artifacts={"功能清单": result},
+            summary=f"{len(structured.get('requirements', []))} 条需求",
+            confidence=0.85)
+        problems = validate_result(envelope, "产品经理", {"功能清单": result})
         safe_print(f"[产品经理] 结构化输出：{len(structured.get('requirements', []))} 条需求")
 
-    save_state({"user_request": user_request, "功能清单": result})
+    save_state({"user_request": user_request, "功能清单": result,
+                "契约_产品经理": envelope.to_dict()})
 
     pm_ctx["last_task"] = user_request[:200]
     pm_ctx["last_output"] = result[:500]
@@ -90,14 +102,30 @@ def programmer_work(master_task: str = None):
     raw_result = call_agent("程序员", prompt)
 
     clean = extract_code(raw_result)
-    if clean != raw_result:
-        safe_print("[程序员] 已自动清洗输出，剥离非代码内容")
+    envelope = parse_envelope(raw_result, "程序员")
+    problems = validate_result(envelope, "程序员", {"代码": clean})
 
-    # 防退化：某轮输出残缺（只剩标记词/空壳）时，不覆盖状态里更完整的上一版代码
-    if len(clean.strip()) >= 50:
-        save_state({"代码": clean})
+    # 契约不过 → 带具体原因 corrective retry 一次（T1：平台说清哪不过，模型才有机会改对）
+    if problems:
+        safe_print(f"[程序员] 契约校验未过: {problems}，带原因重试一次")
+        retry_prompt = (
+            prompt
+            + "\n\n【平台校验未通过，原因】" + "；".join(problems)
+            + "\n请修正后重新输出。务必在最终答复末尾追加合规的 [RESULT] 结果信封；"
+              "如果你是用 create_file 把代码写入 代码.py 的，请在 evidence 里补一条 "
+              "type=file、ref=代码.py 的证据。"
+        )
+        raw_result = call_agent("程序员", retry_prompt)
+        clean = extract_code(raw_result)
+        envelope = parse_envelope(raw_result, "程序员")
+        problems = validate_result(envelope, "程序员", {"代码": clean})
+
+    if clean.strip() and not problems:
+        save_state({"代码": clean, "契约_程序员": envelope.to_dict()})
     else:
-        safe_print(f"[程序员] 本轮无有效代码（{len(clean.strip())} 字），保留上一版")
+        # 防退化（2026-10-13 实测坑）：残缺输出不覆盖状态里更完整的上一版代码
+        safe_print(f"[程序员] 最终校验未过（{problems or ['空输出']}），保留上一版代码")
+        save_state({"契约_程序员": envelope.to_dict()})
 
     prog_ctx["last_code_length"] = len(clean)
     prog_ctx["call_count"] = prog_ctx.get("call_count", 0) + 1
@@ -133,14 +161,27 @@ def programmer_fix_work(master_task: str = None):
     raw_result = call_agent("程序员", prompt)
 
     clean = extract_code(raw_result)
-    if clean != raw_result:
-        safe_print("[程序员] 已自动清洗输出，剥离非代码内容")
+    envelope = parse_envelope(raw_result, "程序员")
+    problems = validate_result(envelope, "程序员", {"代码": clean})
 
-    # 防退化：修复轮同理，残缺输出不覆盖上一版
-    if len(clean.strip()) >= 50:
-        save_state({"代码": clean})
+    if problems:
+        safe_print(f"[程序员-修复轮] 契约校验未过: {problems}，带原因重试一次")
+        retry_prompt = (
+            prompt
+            + "\n\n【平台校验未通过，原因】" + "；".join(problems)
+            + "\n请修正后重新输出完整代码，并在答复末尾追加合规的 [RESULT] 结果信封。"
+        )
+        raw_result = call_agent("程序员", retry_prompt)
+        clean = extract_code(raw_result)
+        envelope = parse_envelope(raw_result, "程序员")
+        problems = validate_result(envelope, "程序员", {"代码": clean})
+
+    if clean.strip() and not problems:
+        save_state({"代码": clean, "契约_程序员": envelope.to_dict()})
     else:
-        safe_print(f"[程序员] 本轮无有效代码（{len(clean.strip())} 字），保留上一版")
+        # 防退化：修复轮同理，残缺输出不覆盖上一版
+        safe_print(f"[程序员-修复轮] 最终校验未过（{problems or ['空输出']}），保留上一版代码")
+        save_state({"契约_程序员": envelope.to_dict()})
 
     prog_ctx["last_code_length"] = len(clean)
     prog_ctx["fix_count"] = prog_ctx.get("fix_count", 0) + 1
@@ -233,8 +274,14 @@ def tester_work(master_task: str = None):
         )
     result = call_agent("测试员", prompt)
 
+    envelope = parse_envelope(result, "测试员")
+    problems = validate_result(envelope, "测试员", {"测试报告": result})
+    if problems:
+        safe_print(f"[测试员] 契约校验未过: {problems}")
+
     passed = _judge_test_result(result)
-    save_state({"测试报告": result, "测试状态": "通过" if passed else "未通过"})
+    save_state({"测试报告": result, "测试状态": "通过" if passed else "未通过",
+                "契约_测试员": envelope.to_dict()})
 
     test_ctx["last_result"] = "通过" if passed else "未通过"
     test_ctx["test_count"] = test_ctx.get("test_count", 0) + 1

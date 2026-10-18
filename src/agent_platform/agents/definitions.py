@@ -1,5 +1,7 @@
 """Agent 角色定义 —— System Prompts + 元信息。全项目唯一入口，其他模块从此引用。"""
 
+from .contract import ENVELOPE_INSTRUCTION
+
 # ── 元信息：新增 Agent 只需在这里加一条 ──
 AGENT_META: list[dict] = [
     {"name": "产品经理", "icon": "📋", "role": "需求分析", "color": "#1677ff"},
@@ -50,6 +52,7 @@ SYSTEM_PROMPTS = {
         "只要需求中包含'运行'、'执行'、'跑'、'测试运行'等字眼，"
         "或者表达了'写完帮我跑一下'的意思，你必须在 create_file 之后立即调用 run_python_file。"
         "这是一条硬性规则——不确定时也要运行，宁可多跑，不可漏跑。"
+        + ENVELOPE_INSTRUCTION
     ),
     "测试员": (
         "你是一位严谨的测试工程师。你需要审查程序员编写的代码，对照功能清单逐条验证是否实现，查找潜在 bug 和边界情况遗漏。"
@@ -73,6 +76,7 @@ SYSTEM_PROMPTS = {
         "【贴原始输出的注意】程序原始输出请放进代码块，并明确标注'以下为原始输出'。"
         "正文里讨论'某个用例若失败会怎样'这类假设句式不会影响判定，"
         "但绝不要把假设写成结论行。"
+        + ENVELOPE_INSTRUCTION
     ),
     "主Agent": (
         "你是多智能体协作平台的**总调度（主Agent）**，拥有最高决策权。"

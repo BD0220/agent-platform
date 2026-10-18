@@ -92,10 +92,17 @@ AB.chat = (() => {
     const card = el("div");
     card.className = "msg handoff-msg";
     card.dataset.approvalId = ev.approval_id || "";
+    // 两级闸门：计划确认（主Agent → 执行团队）要有别于普通交接请求，
+    // 否则用户会把它当成日常交接顺手点掉（2026-10-18 实测反馈）
+    const isPlan = (ev.to_agent || "") === "执行团队";
+    const role = isPlan ? "执行计划确认" : "交接请求";
+    const intro = isPlan
+      ? `<b>这是开场的执行计划确认</b>：主Agent 打算按下面的计划开工。确认后开始执行；不满意可直接在意见框改计划再拒绝`
+      : `等待你确认：<b>${esc(ev.from_agent || "主Agent")}</b> → <b>${esc(ev.to_agent || "")}</b>`;
     card.innerHTML = avatar("主Agent") +
-      `<div class="body" style="max-width:100%"><div class="head"><span class="name" style="color:${AGENT_STYLE["主Agent"].color}">主Agent</span><span class="role">交接请求</span>${headTime(ev)}</div>` +
+      `<div class="body" style="max-width:100%"><div class="head"><span class="name" style="color:${AGENT_STYLE["主Agent"].color}">主Agent</span><span class="role">${role}</span>${headTime(ev)}</div>` +
       `<div class="bubble"><div class="ho-inline">` +
-      `<div style="font-size:13px;margin-bottom:6px">等待你确认：<b>${esc(ev.from_agent || "主Agent")}</b> → <b>${esc(ev.to_agent || "")}</b></div>` +
+      `<div style="font-size:13px;margin-bottom:6px">${intro}</div>` +
       (ev.summary ? `<div class="muted" style="white-space:pre-wrap;max-height:120px;overflow:auto;margin-bottom:6px">${esc(ev.summary)}</div>` : "") +
       `<div style="white-space:pre-wrap">${esc(ev.task || "")}</div>` +
       `</div></div></div>`;

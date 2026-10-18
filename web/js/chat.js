@@ -139,13 +139,18 @@ AB.chat = (() => {
           pendingNode = b;
           target = state.streams[name];
           target._text = null;
+          target._raw = "";
         }
         if (!target._text) {
           target._text = document.createElement("div");
           target._text.className = "stream-text";
           target.appendChild(target._text);
+          if (target._raw == null) target._raw = "";
         }
-        target._text.textContent += ev.content || "";
+        // 增量重渲染为 Markdown：之前 textContent 直灌，流式期间
+        // ** 和代码块全是裸符号，等整段流完才"突然变好看"（实测反馈太乱）
+        target._raw = (target._raw || "") + (ev.content || "");
+        target._text.innerHTML = md(target._raw);
         return null;
       }
 
@@ -155,8 +160,9 @@ AB.chat = (() => {
           return bubble(name, "",
             `<div class="take"><b>收到任务</b><br>${md((ev.content || "").slice(0, 400))}</div>`);
         }
-        // 活跃气泡：先显示接到的任务，LLM 输出到达后逐字长在下面
-        const b = bubble(name, "", md(ev.content || "正在处理"));
+        // 活跃气泡：接到的任务只展示开头（全文已经在交接确认卡里），
+        // 整段灌进来会把气泡顶成一堵墙
+        const b = bubble(name, "", md((ev.content || "正在处理").slice(0, 300)));
         state.streams[name] = b.querySelector(".bubble");
         return b;
       }

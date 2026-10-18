@@ -140,12 +140,11 @@ def agent_node(state: WorkflowState) -> dict:
                    f"（折叠 {_ctx_stats['collapsed']} 条早期轮次）")
 
     try:
-        # 主 Agent 也走流式：之前用一次性 llm.chat，用户盯着"等半天
-        # 然后出来一堆"（2026-10-18 实测反馈）。delta 只进内存不落盘。
-        from ..runtime import bus
+        # 主 Agent 走流式（delta 只进内存不落盘）。注意：**不发** working/done
+        # 事件 —— 每轮都发的话前端每轮画两张"收到任务"卡，把时间线刷成
+        # 垃圾场（2026-10-18 实测）。整轮一条流式气泡，空轮（只调工具
+        # 不说话）不画，工具动静由 tool_node 的系统徽章负责。
         from ..agents.call_agent import _delta_emitter
-        bus.emit(bus.KIND_AGENT, agent="主Agent", phase="working",
-                 content=f"第 {turns + 1} 轮思考中…")
         on_delta = _delta_emitter("主Agent")
         try:
             result = llm.chat_collect(
@@ -156,8 +155,6 @@ def agent_node(state: WorkflowState) -> dict:
         finally:
             if on_delta is not None:
                 on_delta.flush()
-        bus.emit(bus.KIND_AGENT, agent="主Agent", phase="done",
-                 content=result.content or "")
     except Exception as e:
         safe_print(f"[工作流] LLM 调用失败: {e}")
         return {"messages": messages, "turns": turns + 1, "status": "error"}
@@ -211,6 +208,12 @@ def tool_node(state: WorkflowState) -> dict:
         safe_print(f"\n[工具执行] 执行 {len(tool_calls)} 个 Function Calling 调用")
         for tc in tool_calls:
             func_name = tc["function"]["name"]
+            # 工具动静上屏：长工具（读大文件/跑脚本）期间界面不再是死寂一片
+            try:
+                from ..runtime import bus
+                bus.emit(bus.KIND_SYSTEM, content=f"🔧 主Agent 调用工具 {func_name}")
+            except Exception:
+                pass
             try:
                 import json as _json
                 arguments = _json.loads(tc["function"]["arguments"])

@@ -73,11 +73,17 @@ def _delta_emitter(role: str):
     return on_delta
 
 
-def _exec_fc_tool_calls(tool_calls: list[dict]) -> list[dict]:
+def _exec_fc_tool_calls(tool_calls: list[dict], role: str = "") -> list[dict]:
     """执行一组 Function Calling 调用，返回 [{tool, params, result}]。"""
     results = []
     for tc in tool_calls:
         func_name = tc["function"]["name"]
+        # 工具动静上屏：长工具执行期间界面有东西在动，不再死寂
+        try:
+            from ..runtime import bus
+            bus.emit(bus.KIND_SYSTEM, content=f"🔧 {role or '子Agent'} 调用工具 {func_name}")
+        except Exception:
+            pass
         try:
             arguments = json.loads(tc["function"]["arguments"])
         except (json.JSONDecodeError, TypeError):
@@ -124,9 +130,10 @@ def call_agent(role: str, prompt: str, messages_override: list[dict] = None) -> 
             {"role": "user", "content": prompt},
         ]
 
-    # 产品经理不流式：它的输出是结构化 JSON（界面有专门的渲染），
-    # 把原始 JSON 逐字长在气泡里只会显得很乱。
-    on_delta = None if role == "产品经理" else _delta_emitter(role)
+    # 产品经理也流式：之前担心 JSON 刷屏关掉了它，结果成了"等 30 秒
+    # 然后出来一堆"的重灾区（2026-10-18 实测反馈）。它的最终输出是
+    # Markdown 正文，流式没问题；结尾的 [RESULT] 信封随正文一起滚出即可。
+    on_delta = _delta_emitter(role)
     tool_schemas = get_tool_schemas()
     llm = get_llm()
 
@@ -155,7 +162,7 @@ def call_agent(role: str, prompt: str, messages_override: list[dict] = None) -> 
             if chat_result.tool_calls:
                 messages.append({"role": "assistant", "content": text,
                                  "tool_calls": chat_result.tool_calls})
-                fc_results = _exec_fc_tool_calls(chat_result.tool_calls)
+                fc_results = _exec_fc_tool_calls(chat_result.tool_calls, role=role)
                 for tc, tr in zip(chat_result.tool_calls, fc_results):
                     messages.append({
                         "role": "tool",

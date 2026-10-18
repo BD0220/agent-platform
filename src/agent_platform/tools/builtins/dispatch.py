@@ -1,15 +1,20 @@
 """dispatch_agent 工具 —— 主Agent 调度子Agent 的桥梁。
 
 这个文件是全项目**唯一**的任务交接点：主Agent 想让某个子Agent 干活，
-只有可能要经过 ``dispatch_agent``。因此"交接前必须人工确认"这条规则
-只需要在这里实现一次，就覆盖了所有交接场景。
+只有可能要经过 ``dispatch_agent``。因此闸门只需要在这里实现一次。
+
+## 两级闸门（默认 plan 模式）
+    第一级：开场"执行计划确认"——用户看一次全貌，点头后开工。
+    第二级：后续交接**自动放行**（参照 DevFlow 的 ActionDraft 哲学：
+    计划定方向、执行不打断、结果交给人看）。每次自动分派都会在
+    时间线上发一条系统徽章，进度依然可见。
+    设 ``AGENT_GATE_MODE=all`` 恢复旧版"每次交接都确认"。
 
 执行顺序（关键）：
-    校验参数 → 停止标志检查 → ★交接闸门（阻塞等用户点确认）→ 真正调度子Agent
-
-闸门放在这里还有个好处：主Agent 传进来的 ``task`` 描述就是"下面要交给谁什么任务"
-的原文，直接拿去做确认卡片，不需要额外让 LLM 再输出一遍结构化的交接说明。
+    校验参数 → 停止标志检查 → ★计划闸门（仅开场）→ ★交接闸门（all 模式）→ 真正调度
 """
+import os
+
 from ...utils.safe_print import safe_print
 
 # 上游 agent -> 它产出的 state 字段名，用于在确认卡片里展示"已完成的工作内容"
@@ -159,6 +164,19 @@ def _pass_approval_gate(agent_name: str, task_desc: str):
                 return None
             # approve —— 计划放行；第一次交接免确认（计划已覆盖）
             return task_desc
+
+    # 计划已确认（或无计划）：默认不再逐次打断。
+    # "一直弹弹弹"的实测反馈（2026-10-18）：计划 + 每次交接 + 打回重做
+    # 全都弹，测试员迟迟开不了工。DevFlow 的做法是计划确认后执行全自动。
+    gate_mode = os.environ.get("AGENT_GATE_MODE", "plan").strip().lower()
+    if gate_mode != "all":
+        try:
+            from ...runtime import bus
+            bus.emit(bus.KIND_SYSTEM,
+                     content=f"➡️ 已自动分派 {agent_name}（计划模式下交接免确认）")
+        except Exception:
+            pass
+        return task_desc
 
     previous = _last_dispatched_agent() or "主Agent"
     summary = _work_summary(previous)

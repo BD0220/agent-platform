@@ -27,7 +27,7 @@ def _run_in_docker(filepath: str, task_dir: str, timeout: int) -> subprocess.Com
     if not docker:
         return None
     cmd = [
-        docker, "run", "--rm", "-i",
+        docker, "run", "--rm",
         "--network", "none",
         "--read-only",
         "--memory", f"{MAX_MEMORY_MB}m",
@@ -111,6 +111,11 @@ def _tool_run_python_file(params: str, content: str) -> str:
         "timeout": timeout,
         "cwd": task_dir,
         "env": env,
+        # 关键：stdin 接到 /dev/null。不接的话交互式程序（计算器/菜单
+        # 类）会在 input() 上干等到超时，一次白烧 30 秒（2026-10-18
+        # 计算器任务实测）。接上后 input() 立刻拿到 EOF，程序快速退出，
+        # 模型马上能从 traceback 看出"需要管道喂输入"并改写批量脚本。
+        "stdin": subprocess.DEVNULL,
     }
     if sys.platform != "win32":
         kwargs["preexec_fn"] = _build_posix_preexec_fn()

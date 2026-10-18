@@ -131,6 +131,7 @@ def call_agent(role: str, prompt: str, messages_override: list[dict] = None) -> 
     llm = get_llm()
 
     parts: list[str] = []          # 每轮输出 + 工具结果，最后拼接返回
+    finished = False               # 是否拿到了"不含工具调用的最终答复"
     try:
         for _ in range(MAX_TOOL_ROUNDS + 1):
             # T3：超预算时压缩早期轮次（子 Agent 循环短，通常不触发；
@@ -162,6 +163,11 @@ def call_agent(role: str, prompt: str, messages_override: list[dict] = None) -> 
                         "name": tr["tool"],
                         "content": tr["result"],
                     })
+                # 工具结果也要进返回值：否则模型全程只发工具调用时
+                # （轮数耗尽没来得及给最终答复），返回值就是空串，
+                # 上层的契约校验只能报 empty_output（2026-10-18 实测）
+                parts.append("\n\n".join(
+                    f"## {tr['tool']} 执行结果\n{tr['result']}" for tr in fc_results))
                 continue
 
             # 路径2：文本协议 [TOOL_CALL: ...] —— 同样回填继续
@@ -178,10 +184,26 @@ def call_agent(role: str, prompt: str, messages_override: list[dict] = None) -> 
                     continue
 
             # 无工具调用 → 最终答复，结束循环
+            finished = True
             break
     finally:
         if on_delta is not None:
             on_delta.flush()
+
+    if not finished:
+        # 轮数耗尽还没给最终答复：强制收尾一轮（不给工具），保证有产出。
+        # 不做这一步，模型把轮数全花在工具上时返回值就是空的。
+        safe_print(f"[{role}] 工具轮数耗尽，强制要求输出最终答复")
+        messages.append({"role": "user", "content":
+                         "已达到工具调用轮数上限。请不要再调用任何工具，"
+                         "立即基于以上已获得的信息输出最终答复（报告/结论/代码）。"})
+        try:
+            chat_result = llm.chat_collect(messages=messages, tools=None, on_delta=on_delta)
+            if on_delta is not None:
+                on_delta.flush()
+            parts.append(chat_result.content or "")
+        except Exception as e:
+            safe_print(f"[{role}] 强制收尾轮失败: {e}")
 
     result = "\n\n".join(p for p in parts if p)
     preview = result[:300] + ("..." if len(result) > 300 else "")

@@ -10,9 +10,11 @@
 字符数是 token 的粗代理（中文 1 字 ≈ 1-1.5 token，代码/JSON 密度更高），
 默认 24000 字 ≈ 6-8k token，留足 system + 工具 schema 的空间。
 """
-KEEP_RECENT = 6
-DEFAULT_BUDGET_CHARS = 24000
-TOOL_RESULT_HARD_LIMIT = 800   # 二轮兜底：单条工具结果截断上限
+KEEP_RECENT = 8
+DEFAULT_BUDGET_CHARS = 48000   # DeepSeek 128K 上下文，24000 字预算太保守：
+                               # 995 行 HTML 的 read_file 结果直接撑爆，
+                               # 兜底截断把代码砍成头尾各 400 字 → 测试员蒙眼测试
+TOOL_RESULT_HARD_LIMIT = 3000  # 二轮兜底：单条工具结果截断上限
 
 
 def _total_chars(messages: list[dict]) -> int:
@@ -22,7 +24,12 @@ def _total_chars(messages: list[dict]) -> int:
 def assemble_messages(messages: list[dict],
                       budget_chars: int = DEFAULT_BUDGET_CHARS,
                       keep_recent: int = KEEP_RECENT) -> tuple[list[dict], dict]:
-    """超预算时压缩早期轮次。返回 (messages, stats)，stats 供可观测使用。"""
+    """超预算时压缩早期轮次。返回 (messages, stats)，stats 供可观测使用。
+
+    注意：必须返回**新列表、新字典**，绝不原地改调用方的消息 ——
+    上一版直接改 dict，工具结果被截断后污染了调用方循环里复用的
+    消息列表，后面每一轮看到的都是残缺证据（实测踩过）。
+    """
     if not messages:
         return messages, {"compressed": False, "before": 0, "after": 0}
 
@@ -44,7 +51,7 @@ def assemble_messages(messages: list[dict],
         kept.append({"role": role, "content": f"[早期轮次摘要] {gist}…"})
         collapsed += 1
 
-    out = kept + tail
+    out = [dict(m) for m in kept + tail]   # 拷贝，杜绝原地污染
     after = _total_chars(out)
 
     # 二轮兜底：仍有巨型工具结果撑爆预算时，逐条截断（保留头尾，标记截断）

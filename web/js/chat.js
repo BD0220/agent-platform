@@ -7,8 +7,9 @@ AB.chat = (() => {
     "产品经理": { icon: "📋", color: "#2563eb", bg: "#eff6ff", role: "需求分析" },
     "程序员":   { icon: "💻", color: "#0891b2", bg: "#ecfeff", role: "编码实现" },
     "测试员":   { icon: "🔍", color: "#059669", bg: "#ecfdf5", role: "质量验证" },
+    "审查员":   { icon: "🛡️", color: "#b45309", bg: "#fffbeb", role: "独立验收" },
   };
-  const AGENT_ORDER = ["主Agent", "产品经理", "程序员", "测试员"];
+  const AGENT_ORDER = ["主Agent", "产品经理", "程序员", "测试员", "审查员"];
   // 正在流式输出的气泡：agent 名 -> .bubble 元素（done 到达后原地替换成最终内容）
   const state = { working: new Set(), done: new Set(), resolved: new Map(), streams: {} };
 
@@ -264,8 +265,8 @@ AB.chat = (() => {
   function emptyState() {
     const box = el("div", "empty-state");
     box.innerHTML = `<div class="big">今天让他们做点什么？</div>` +
-      `<div class="sub">一句话描述需求，四个 Agent 会接力完成：产品经理出需求 → 程序员写代码 → 测试员验质量，` +
-      `每一步交接前都会先问你。</div>` +
+      `<div class="sub">一句话描述需求，五个角色会接力完成：产品经理出需求 → 程序员写代码 → 测试员验质量，` +
+      `收尾前独立审查员再验收一遍；计划与每次交接前都会先问你。</div>` +
       `<div class="hints">` +
       `<span>写一个判断回文的 Python 函数并运行</span>` +
       `<span>实现一个 LRU 缓存并写测试</span>` +

@@ -140,7 +140,24 @@ def agent_node(state: WorkflowState) -> dict:
                    f"（折叠 {_ctx_stats['collapsed']} 条早期轮次）")
 
     try:
-        result = llm.chat(messages=messages, tools=tool_schemas if tool_schemas else None)
+        # 主 Agent 也走流式：之前用一次性 llm.chat，用户盯着"等半天
+        # 然后出来一堆"（2026-10-18 实测反馈）。delta 只进内存不落盘。
+        from ..runtime import bus
+        from ..agents.call_agent import _delta_emitter
+        bus.emit(bus.KIND_AGENT, agent="主Agent", phase="working",
+                 content=f"第 {turns + 1} 轮思考中…")
+        on_delta = _delta_emitter("主Agent")
+        try:
+            result = llm.chat_collect(
+                messages=messages,
+                tools=tool_schemas if tool_schemas else None,
+                on_delta=on_delta,
+            )
+        finally:
+            if on_delta is not None:
+                on_delta.flush()
+        bus.emit(bus.KIND_AGENT, agent="主Agent", phase="done",
+                 content=result.content or "")
     except Exception as e:
         safe_print(f"[工作流] LLM 调用失败: {e}")
         return {"messages": messages, "turns": turns + 1, "status": "error"}

@@ -92,6 +92,7 @@ agent-platform/
 | GET | /sessions/{id}/events | SSE 事件流（游标增量） |
 | POST | /sessions/{id}/approval | 交接审批：approve / reject / stop |
 | POST | /sessions/{id}/stop | 协作式终止 |
+| GET | /sessions/{id}/trace | 决策时间线（token 计量 / 每步事件） |
 | GET | /files/content | 读交付物（限工作空间内，越权 403） |
 | GET | /stats · /metrics | 任务统计 / token 用量 |
 | POST | /run · /task | 旧版单发任务接口（保留兼容） |
